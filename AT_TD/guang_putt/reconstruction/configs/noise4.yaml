@@ -1,0 +1,57 @@
+target: data/images/tokyo_downsampled_images/tokyo_4k.png
+base_config: configs/base_configs/2d_base_config_noise.yaml
+
+use_wandb: 0
+
+data: imagenet # {cifar10, imagenet}
+model: QTT # {QTT, Tucker, CP}
+attack: clean # pipeline+{pgdeot, AA} to attack the whole pipeline
+
+lr: 0.005
+loss_fn_str: L2
+
+payload: 3
+payload_position: first_core
+
+seed: 42
+
+init_reso: 64
+end_reso: 256
+num_iterations: 1024 # 2048, 4096, 8192
+# regularization_type: "TV"
+# regularization_weight: 0.1
+regularization_weight: 0.05
+
+iterations_for_upsampling:
+  - 64
+  - 128
+  # - 256
+  # - 512
+
+max_ranks_arr:
+    - 20
+    # - 200
+
+# subset_to_train_on: 0.75
+noise_std: 0.
+noise_type: None #gaussian
+noise_mean: 0
+
+# noise_type: gaussian
+# noise_std: 0.1
+# noise_mean: 0
+
+lr_decay_factor: 0.9
+lr_decay_factor_until_next_upsampling: 0.1
+warmup_steps: 5
+
+log_every: 5
+show_end_results_locally: 0
+save_end_results_locally: 0
+plot_upsampling: 0
+calculate_psnr_while_training: 0
+
+save_training_images: 0
+use_tqdm: 0
+wandb_limited_logging: 0
+compute_reconstruction: 0

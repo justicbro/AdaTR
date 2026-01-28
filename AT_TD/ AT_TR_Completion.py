@@ -91,7 +91,7 @@ def display_images(original_image, images, titles, rows, cols, figsize=(20, 10),
         plt.savefig(save_path)
     plt.show()
 
-def objective_function_ATTR(X, mask, G_list, E, iner_num_steps = 100, inner_tol = 1e-10, my_device="cuda"):
+def objective_function_ATTR(X, mask, G_list, E, inner_num_steps = 100, inner_tol = 1e-10, my_device="cuda"):
     """
     Compute the objective function ||X - TN([G^(k)])||_F^2.q
     X: Original tensor (PyTorch tensor)
@@ -105,8 +105,16 @@ def objective_function_ATTR(X, mask, G_list, E, iner_num_steps = 100, inner_tol 
 
     X_tube = X + E
 
-    TN_G, tr_cores = tr.tensor_completion(X_tube, mask, G_list, max_iter=iner_num_steps, tol=inner_tol, dis_num = 2000, device=my_device)
-    # tr_cores = tr.tr_decompose(X_tube, ranks, max_iter=iner_num_steps, tol=inner_tol, dis_num = 2000, device="cuda")
+    TN_G, TN_reconstructed, tr_cores = tr.tensor_completion(
+        X_tube,
+        mask,
+        G_list,
+        max_iter=inner_num_steps,
+        tol=inner_tol,
+        dis_num=2000,
+        device=my_device,
+    )
+    # tr_cores = tr.tr_decompose(X_tube, ranks, max_iter=inner_num_steps, tol=inner_tol, dis_num = 2000, device="cuda")
 
     # del X_tube
     # gc.collect()
@@ -575,7 +583,15 @@ if __name__ == "__main__":
     # Optimize perturbation \mathcal{E}
     X.requires_grad_(True)
     E_optimized, TN_G, loss_ours = optimize_perturbation(X, mask, tr_cores, config)
-    TN_G, tr_cores_ours = tr.tensor_completion(X+E_optimized, mask, tr_cores, max_iter=inner_num_steps, tol=inner_tol, dis_num=inner_dis_num, device="cuda")
+    TN_G, TN_reconstructed, tr_cores_ours = tr.tensor_completion(
+        X + E_optimized,
+        mask,
+        tr_cores,
+        max_iter=inner_num_steps,
+        tol=inner_tol,
+        dis_num=inner_dis_num,
+        device="cuda",
+    )
     # E_optimized, TN_G, loss_ours = optimize_perturbation_simplified_2(X, tr_cores, config)
     # E_optimized, TN_G, loss_ours = optimize_perturbation_simplifed(X, tr_cores, config)
     X_mask_ours = (X+E_optimized) * mask
@@ -595,7 +611,15 @@ if __name__ == "__main__":
         TN_G_comparison = (TN_G_comparison).cpu().detach().numpy()
         
 
-    TN_G_ori, tr_cores = tr.tensor_completion(X, mask, tr_cores, max_iter=inner_num_steps, tol=inner_tol, dis_num=inner_dis_num, device="cuda")
+    TN_G_ori, TN_reconstructed_ori, tr_cores = tr.tensor_completion(
+        X,
+        mask,
+        tr_cores,
+        max_iter=inner_num_steps,
+        tol=inner_tol,
+        dis_num=inner_dis_num,
+        device="cuda",
+    )
     # TN_G_ori = tl.tr_to_tensor(tr_cores) 
     norm2_original_TR_algorithm = torch.norm(X - TN_G_ori).item()
     X_mask_ori = X * mask

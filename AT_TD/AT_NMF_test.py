@@ -77,7 +77,7 @@ def display_line_graphs(loss_dict, figsize=(10, 5), save_path=None):
         plt.savefig(save_path)
     plt.show()
 
-def objective_function_ATNMF(X, rank, E, iner_num_steps = 100, inner_tol = 1e-10, inner_dis_num = 100, device='cuda'):
+def objective_function_ATNMF(X, rank, E, inner_num_steps = 100, inner_tol = 1e-10, inner_dis_num = 100, device='cuda'):
     """
     Compute the objective function ||X - TN([G^(k)])||_F^2.
     X: Original tensor (PyTorch tensor)
@@ -89,7 +89,7 @@ def objective_function_ATNMF(X, rank, E, iner_num_steps = 100, inner_tol = 1e-10
 
     X_tube = X + E
 
-    W, H = mynmf.nmf(X_tube, rank, iner_num_steps, inner_tol, inner_dis_num, device=device)
+    W, H = mynmf.nmf(X_tube, rank, inner_num_steps, inner_tol, inner_dis_num, device=device)
 
     V_reconstructed = torch.mm(W, H)
 
@@ -98,7 +98,7 @@ def objective_function_ATNMF(X, rank, E, iner_num_steps = 100, inner_tol = 1e-10
     
     return -torch.norm(X - V_reconstructed) ** 2 - lambda2 * nuclear_norm_X_tube, V_reconstructed
 
-def objective_function_ANMF(X, rank, E, iner_num_steps = 100, inner_tol = 1e-10, inner_dis_num = 100, device='cuda'):
+def objective_function_ANMF(X, rank, E, inner_num_steps = 100, inner_tol = 1e-10, inner_dis_num = 100, device='cuda'):
     """
     Compute the comparison objective function.
     X: Original tensor (PyTorch tensor)
@@ -110,7 +110,7 @@ def objective_function_ANMF(X, rank, E, iner_num_steps = 100, inner_tol = 1e-10,
     EC = E.clone().detach()
     X_tube = X + EC
 
-    W, H = mynmf.nmf(X_tube, rank, iner_num_steps, inner_tol, inner_dis_num, device=device)
+    W, H = mynmf.nmf(X_tube, rank, inner_num_steps, inner_tol, inner_dis_num, device=device)
 
     V_reconstructed = torch.mm(W, H)
     
@@ -203,7 +203,7 @@ def optimize_perturbation_comparison(X, rank, config: OptimizationConfig):
         optimizer.zero_grad()
 
         # Compute loss
-        loss, TN_G = objective_function_ANMF(X, rank, E, config.inner_num_steps, config.inner_tol, inner_dis_num, device='cuda')
+        loss, TN_G = objective_function_ANMF(X, rank, E, config.inner_num_steps, config.inner_tol, config.inner_dis_num, device='cuda')
 
         E_old = E.clone().detach()
 

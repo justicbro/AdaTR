@@ -1,0 +1,57 @@
+target: /home/thien/PuTT/PuTT/data/girl_16k_downsampled/girl_32.png
+base_config: configs/base_configs/2d_base_config.yaml
+
+use_wandb: 0
+
+data: cifar10 # {cifar10, cifar100, imagenet}
+model: QTT # {TT, QTT, Tucker, CP}
+attack: clean # pipeline+{pgdeot, AA} to attack the whole pipeline
+clf: AT
+
+payload: 3
+payload_position: first_core
+payload_virt: 3 # for QTR
+channel_virt: 3 # for QTR
+
+subset_size: 512 # number of test images
+num_iterations: 1200
+max_batch_size: 2048 # 256 ** 2
+dimensions: 2
+is_tensor_ring: 1
+
+seed: 2007
+
+init_reso: 16
+end_reso: 256
+
+iterations_for_upsampling:
+  - 25
+  - 75
+  - 150
+  - 250
+
+max_rank: 20 # 10 for cifar10, 100 for imagenet for {QTT, CP, Tucker} and 50 for TT or TR
+channel_rank: 3 # for TR
+
+subset_to_train_on: 0.75
+noise_std: 0.1
+noise_type: gaussian
+noise_mean: 0
+regularization_type: None
+regularization_weight: 0.001
+
+lr: 0.008
+lr_decay_factor: 0.9
+lr_decay_factor_until_next_upsampling: 0.2
+warmup_steps: 50
+
+log_every: 5
+show_end_results_locally: 0
+save_end_results_locally: 0
+plot_upsampling: 0
+calculate_psnr_while_training: 0
+
+save_training_images: 0
+use_tqdm: 0
+wandb_limited_logging: 0
+compute_reconstruction: 0

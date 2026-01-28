@@ -1,0 +1,6 @@
+{
+  "terminal.integrated.defaultProfile.linux": "bash",
+  "remote.SSH.remotePlatform": {
+    "tlt-server5": "linux"
+  }
+}

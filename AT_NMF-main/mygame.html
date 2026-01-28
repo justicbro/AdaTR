@@ -1,0 +1,1916 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>路径塔防 - 弓箭手&城堡&轨迹版</title>
+  <style>
+    body {
+      background: #111;
+      color: #eee;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin: 0;
+      padding-top: 10px;
+    }
+  #gameContainer {
+    position: relative;
+  }
+  canvas {
+    background: #000;
+      border: 2px solid #555;
+      display: block;
+    }
+    #ui {
+      margin-top: 8px;
+      font-size: 14px;
+      text-align: center;
+      line-height: 1.4;
+    }
+    #controls {
+      margin-top: 6px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    #controls button {
+      background: #2e7d32;
+      color: #fff;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    #controls button:hover { background: #388e3c; }
+    #controls button:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+    .stat {
+      margin: 0 10px;
+    }
+    #musicHint {
+      margin-top: 4px;
+      font-size: 12px;
+      color: #ccc;
+    }
+    #heroSprite {
+      position: absolute;
+      pointer-events: none;
+      display: none;
+      transform: translate(-50%, -50%);
+      image-rendering: auto;
+      z-index: 2;
+    }
+    #heroHp {
+      position: absolute;
+      height: 6px;
+      width: 60px;
+      background: rgba(0,0,0,0.6);
+      border-radius: 4px;
+      pointer-events: none;
+      display: none;
+      z-index: 3;
+    }
+    #heroHpFill {
+      height: 100%;
+      background: #4caf50;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <h2>路径塔防 Demo（弓箭轨迹 + 城堡 + 外部 BGM）</h2>
+    <div id="gameContainer">
+      <canvas id="game" width="960" height="720"></canvas>
+      <img id="heroSprite" alt="hero sprite" />
+      <div id="heroHp"><div id="heroHpFill"></div></div>
+    </div>
+  <div id="ui">
+    <span class="stat" id="gold">金币: 0</span>
+    <span class="stat" id="hp">主角: 100</span>
+    <span class="stat" id="core">核心: 100</span>
+    <span class="stat" id="wave">波次: 1 / 11</span>
+    <span class="stat" id="mode">模式: 普通</span>
+    <div id="controls">
+      <button id="startBtn">开始游戏</button>
+      <button id="pauseBtn">暂停</button>
+      <button id="bgmBtn">暂停BGM</button>
+      <button id="muteBtn">全静音</button>
+    </div>
+    <div style="margin-top:4px;">
+      操作：
+      <br>移动：WASD 或 方向键
+      <br>按 B 切换建塔模式；建塔模式下鼠标左键点击非路径/非障碍格子放置防御塔（占 3x3 小格，每个 35 金币）
+      <br>目标：守住 10 波敌人，并击败第 11 波最终 Boss
+    </div>
+    <div id="musicHint">提示：需点击“开始游戏”以开启音频；同目录放 <code>bgm.mp3</code> 会替换，缺少时使用内置柔和 Lo-fi</div>
+  </div>
+
+  <!-- 外部 BGM：你自己准备 bgm.mp3 放在同一文件夹 -->
+  <audio id="bgm" src="bgm.mp3" loop preload="auto"></audio>
+
+  <script>
+    // ===== 画布和网格基础 =====
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+
+    const WIDTH = canvas.width;
+    const HEIGHT = canvas.height;
+    const TILE_SIZE = 15;               // 64x48 格子，更小的格子
+    const GRID_COLS = WIDTH / TILE_SIZE;
+    const GRID_ROWS = HEIGHT / TILE_SIZE;
+    const PATH_SCALE = 3;
+
+    // ===== 路径定义（按格子，先定义粗路径，再插值填满） =====
+    const basePaths = [
+      [
+        {gx: 0, gy: 6},{gx: 1, gy: 6},{gx: 2, gy: 6},{gx: 3, gy: 6},{gx: 4, gy: 6},{gx: 5, gy: 6},
+        {gx: 6, gy: 6},{gx: 7, gy: 6},{gx: 8, gy: 6},
+        {gx: 8, gy: 7},{gx: 8, gy: 8},{gx: 9, gy: 8},{gx: 10, gy: 8},{gx: 11, gy: 8},
+        {gx: 12, gy: 8},{gx: 13, gy: 8},{gx: 14, gy: 8},{gx: 15, gy: 8},
+        {gx: 16, gy: 8},{gx: 17, gy: 8},{gx: 18, gy: 8},{gx: 19, gy: 8},{gx: 19, gy: 9}
+      ],
+      [
+        {gx: 0, gy: 2},{gx: 1, gy: 2},{gx: 2, gy: 2},{gx: 3, gy: 2},{gx: 4, gy: 2},
+        {gx: 5, gy: 2},{gx: 6, gy: 2},{gx: 7, gy: 2},
+        {gx: 7, gy: 3},{gx: 7, gy: 4},{gx: 7, gy: 5},{gx: 8, gy: 5},{gx: 9, gy: 5},{gx: 10, gy: 5},
+        {gx: 11, gy: 5},{gx: 12, gy: 5},{gx: 12, gy: 6},{gx: 12, gy: 7},{gx: 13, gy: 7},{gx: 14, gy: 7},
+        {gx: 15, gy: 7},{gx: 16, gy: 7},{gx: 17, gy: 7},{gx: 18, gy: 7},{gx: 19, gy: 7},{gx: 19, gy: 8},{gx: 19, gy: 9}
+      ]
+    ];
+    function sign(v) { return v > 0 ? 1 : v < 0 ? -1 : 0; }
+    function buildPath(path) {
+      const scaled = path.map(t => ({gx: t.gx * PATH_SCALE, gy: t.gy * PATH_SCALE}));
+      const dense = [];
+      for (let i = 0; i < scaled.length - 1; i++) {
+        const cur = scaled[i];
+        const next = scaled[i + 1];
+        if (i === 0) dense.push({...cur});
+        let cx = cur.gx, cy = cur.gy;
+        const stepX = sign(next.gx - cur.gx);
+        const stepY = sign(next.gy - cur.gy);
+        while (cx !== next.gx || cy !== next.gy) {
+          cx += stepX;
+          cy += stepY;
+          dense.push({gx: cx, gy: cy});
+        }
+      }
+      return dense;
+    }
+
+    const paths = basePaths.map(buildPath);
+
+    const pathPointsList = paths.map(path =>
+      path.map(t => ({
+        x: t.gx * TILE_SIZE + TILE_SIZE / 2,
+        y: t.gy * TILE_SIZE + TILE_SIZE / 2
+      }))
+    );
+
+    const allPathTiles = paths.flat();
+    const allPathTileSet = new Set(allPathTiles.map(t => `${t.gx},${t.gy}`));
+
+    function isPathTile(gx, gy) {
+      return allPathTileSet.has(`${gx},${gy}`);
+    }
+
+    const coreTile = paths[0][paths[0].length - 1];
+
+    // ===== 草地装饰（一次生成，避免闪烁） =====
+    const grassPatches = [];
+    for (let i = 0; i < 220; i++) {
+      grassPatches.push({
+        x: Math.random() * WIDTH,
+        y: Math.random() * HEIGHT,
+        r: 3 + Math.random() * 8,
+        a: 0.08 + Math.random() * 0.15
+      });
+    }
+
+    // ===== 障碍物（树/石头，多格），避开路径与核心位置 =====
+    const obstacles = [];
+    function addObstacles() {
+      const obstacleCount = 85;
+      const used = new Set(allPathTiles.map(t => `${t.gx},${t.gy}`));
+      // 核心区域预留 3x3
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          used.add(`${coreTile.gx + dx},${coreTile.gy + dy}`);
+        }
+      }
+      while (obstacles.length < obstacleCount) {
+        const size = 1 + Math.floor(Math.random() * 3); // 1~3 格
+        const gx = Math.floor(Math.random() * (GRID_COLS - size));
+        const gy = Math.floor(Math.random() * (GRID_ROWS - size));
+        let conflict = false;
+        for (let ix = 0; ix < size; ix++) {
+          for (let iy = 0; iy < size; iy++) {
+            const key = `${gx + ix},${gy + iy}`;
+            if (used.has(key)) {
+              conflict = true;
+              break;
+            }
+          }
+          if (conflict) break;
+        }
+        if (conflict) continue;
+        for (let ix = 0; ix < size; ix++) {
+          for (let iy = 0; iy < size; iy++) {
+            used.add(`${gx + ix},${gy + iy}`);
+          }
+        }
+        obstacles.push({
+          gx,
+          gy,
+          size,
+          type: Math.random() < 0.55 ? "tree" : "rock"
+        });
+      }
+    }
+
+    function isObstacleTile(gx, gy) {
+      return obstacles.some(o => gx >= o.gx && gx < o.gx + o.size && gy >= o.gy && gy < o.gy + o.size);
+    }
+    addObstacles();
+
+    // ===== 角色、塔、怪物、核心 =====
+    const player = {
+      x: WIDTH / 2,
+      y: HEIGHT / 2,
+      radius: 16,
+      speed: 190,
+      color: "#4caf50",
+      hp: 100,
+      maxHp: 100,
+      attackRange: 150,
+      attackDamage: 20,
+      attackCooldown: 0.55,
+      attackTimer: 0,
+      facingAngle: 0
+    };
+    let playerDead = false;
+    let respawnTimer = 0;
+    const RESPAWN_TIME = 3.0;
+    let invulnTimer = 0;
+    const INVULN_TIME = 1.5;
+    let mousePos = {x: 0, y: 0, gx: 0, gy: 0};
+    let heroAnimTime = 0;
+    let heroFrames = [];
+    let heroImg = null;
+    let heroImgReady = false;
+    let heroSpriteEl = null;
+    let heroSpriteReady = false;
+    let heroHpEl = null;
+    let heroHpFillEl = null;
+    let castleImg = null;
+    let castleImgReady = false;
+    let arrowImg = null;
+    let arrowImgReady = false;
+
+    const core = {
+      x: coreTile.gx * TILE_SIZE + TILE_SIZE / 2,
+      y: coreTile.gy * TILE_SIZE + TILE_SIZE / 2,
+      radius: 28,
+      hp: 120,
+      maxHp: 120
+    };
+
+    let keys = {};
+    let enemies = [];
+    let towers = [];
+    let projectiles = []; // 弓箭轨迹
+
+    let gold = 0;
+    let isBuildMode = false;
+    const towerCost = 35;
+    const towerFootprint = 2; // 占 2x2 小格
+
+    let lastTime = performance.now();
+
+    // ===== 波次系统 =====
+    const TOTAL_WAVES = 11; // 第 11 波为 Boss
+    let currentWave = 1;
+    let waveInProgress = false;
+    let enemiesToSpawn = 0;
+    let spawnTimer = 0;
+    let waveSpawnInterval = 1.2;
+    let timeAfterWaveClear = 0;
+    const timeBetweenWaves = 3.0;
+
+    let gameState = "playing"; // "playing" | "victory" | "defeat"
+
+    // ===== 视觉特效：命中闪光 =====
+    const hitEffects = []; // {x,y,radius,maxRadius,alpha,decay}
+
+    function addHitEffect(x, y, isBoss = false) {
+      hitEffects.push({
+        x,
+        y,
+        radius: 4,
+        maxRadius: isBoss ? 30 : 18,
+        alpha: 0.8,
+        decay: 1.6
+      });
+    }
+
+    function updateHitEffects(dt) {
+      for (let i = hitEffects.length - 1; i >= 0; i--) {
+        const h = hitEffects[i];
+        h.radius += (h.maxRadius - h.radius) * 8 * dt;
+        h.alpha -= h.decay * dt;
+        if (h.alpha <= 0) {
+          hitEffects.splice(i, 1);
+        }
+      }
+    }
+
+    function drawHitEffects() {
+      for (const h of hitEffects) {
+        const grd = ctx.createRadialGradient(
+          h.x, h.y, 0,
+          h.x, h.y, h.radius
+        );
+        grd.addColorStop(0, `rgba(255,255,200,${h.alpha})`);
+        grd.addColorStop(1, `rgba(255,255,200,0)`);
+        ctx.fillStyle = grd;
+        ctx.beginPath();
+        ctx.arc(h.x, h.y, h.radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // ===== BGM：外部 bgm.mp3 优先，缺少时用内置柔和 Lo-fi 合成 =====
+    let bgmStarted = false;
+    let synthCtx = null;
+    let synthTimer = null;
+    let synthMaster = null;
+    let sfxCtx = null;
+    let sfxGain = null;
+    let audioReady = false;
+    let gamePaused = true;
+    let gameStarted = false;
+    let masterMuted = false;
+    let bgmPaused = false;
+    let bgmSource = "auto"; // "external" | "synth"
+    const bgmBaseGain = 0.45;
+    const sfxBaseGain = 0.45;
+
+    function initSfx() {
+      if (sfxCtx) return;
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      sfxCtx = new AudioCtx();
+      sfxGain = sfxCtx.createGain();
+      sfxGain.gain.value = sfxBaseGain;
+      sfxGain.connect(sfxCtx.destination);
+    }
+
+    function ensureAudio() {
+      if (audioReady) return;
+      initSfx();
+      if (sfxCtx && sfxCtx.state === "suspended") {
+        sfxCtx.resume();
+      }
+      if (synthCtx && synthCtx.state === "suspended") {
+        synthCtx.resume();
+      }
+      audioReady = true;
+    }
+
+    function applyMuteState() {
+      const audio = document.getElementById("bgm");
+      if (audio) {
+        audio.muted = masterMuted || bgmPaused;
+        if (!audio.muted && !audio.paused) audio.volume = 0.4;
+      }
+      if (sfxGain) sfxGain.gain.value = masterMuted ? 0 : sfxBaseGain;
+      if (synthMaster && synthCtx) {
+        const target = (masterMuted || bgmPaused) ? 0.0001 : bgmBaseGain;
+        synthMaster.gain.setTargetAtTime(target, synthCtx.currentTime, 0.02);
+      }
+    }
+
+    function playSfx(type, power = 1) {
+      ensureAudio();
+      if (!sfxCtx || !sfxGain) {
+        initSfx();
+        if (!sfxCtx || !sfxGain) return;
+      }
+      const now = sfxCtx.currentTime;
+
+      function envGain(duration, peak) {
+        const g = sfxCtx.createGain();
+        g.gain.setValueAtTime(0, now);
+        g.gain.linearRampToValueAtTime(peak, now + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+        g.connect(sfxGain);
+        return g;
+      }
+
+      if (type === "shoot") {
+        const osc = sfxCtx.createOscillator();
+        osc.type = "triangle";
+        const base = 880 + Math.random() * 160;
+        osc.frequency.setValueAtTime(base, now);
+        osc.frequency.exponentialRampToValueAtTime(base * 0.6, now + 0.12);
+        const g = envGain(0.16, 0.22 * power);
+        osc.connect(g);
+        osc.start(now);
+        osc.stop(now + 0.2);
+      } else if (type === "hit") {
+        const bufferSize = Math.max(1, Math.floor(sfxCtx.sampleRate * 0.12));
+        const buffer = sfxCtx.createBuffer(1, bufferSize, sfxCtx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * 0.9;
+        const noise = sfxCtx.createBufferSource();
+        noise.buffer = buffer;
+        const filter = sfxCtx.createBiquadFilter();
+        filter.type = "bandpass";
+        filter.frequency.value = 1600;
+        filter.Q.value = 1.2;
+        const g = envGain(0.18, 0.26 * power);
+        noise.connect(filter).connect(g);
+        noise.start(now);
+        noise.stop(now + 0.2);
+      } else if (type === "death") {
+        const osc = sfxCtx.createOscillator();
+        osc.type = "sawtooth";
+        const startF = 220 * power + 80;
+        osc.frequency.setValueAtTime(startF, now);
+        osc.frequency.exponentialRampToValueAtTime(startF * 0.25, now + 0.5);
+        const g = envGain(0.55, 0.35 * power);
+        osc.connect(g);
+        osc.start(now);
+        osc.stop(now + 0.6);
+      } else if (type === "coreHit") {
+        const osc = sfxCtx.createOscillator();
+        osc.type = "square";
+        osc.frequency.setValueAtTime(180, now);
+        const g = envGain(0.4, 0.28 * power);
+        osc.connect(g);
+        osc.start(now);
+        osc.stop(now + 0.45);
+      }
+    }
+
+    function startFallbackSynth() {
+      if (synthCtx) return;
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+
+      synthCtx = new AudioCtx();
+      synthMaster = synthCtx.createGain();
+      synthMaster.gain.value = bgmBaseGain;
+      synthMaster.connect(synthCtx.destination);
+
+      const delay = synthCtx.createDelay(1);
+      delay.delayTime.value = 0.28;
+      const feedback = synthCtx.createGain();
+      feedback.gain.value = 0.22;
+      delay.connect(feedback).connect(delay);
+      const delayOut = synthCtx.createGain();
+      delayOut.gain.value = 0.28;
+      delay.connect(delayOut).connect(synthMaster);
+
+      const dryBus = synthCtx.createGain();
+      dryBus.gain.value = 1;
+      dryBus.connect(synthMaster);
+      dryBus.connect(delayOut);
+
+      const padBus = synthCtx.createGain();
+      padBus.gain.value = 0.7;
+      const padFilter = synthCtx.createBiquadFilter();
+      padFilter.type = "lowpass";
+      padFilter.frequency.value = 900;
+      padFilter.Q.value = 0.7;
+      padBus.connect(padFilter);
+      padFilter.connect(synthMaster);
+      padFilter.connect(delayOut);
+
+      const tempo = 80;
+      const beat = 60 / tempo;
+      const tick = beat / 2;
+      let step = 0;
+
+      const progressions = [
+        [
+          [220, 261.63, 329.63],   // Am
+          [174.61, 220, 261.63],   // F
+          [196, 246.94, 293.66],   // G
+          [130.81, 196, 261.63]    // C
+        ],
+        [
+          [220, 261.63, 329.63],   // Am
+          [261.63, 329.63, 392],   // C
+          [174.61, 220, 261.63],   // F
+          [196, 246.94, 293.66]    // G
+        ]
+      ];
+
+      const leadScale = [
+        220.0, 246.94, 261.63, 293.66, 329.63, 349.23, 392.0,
+        440.0, 493.88, 523.25, 587.33, 659.25, 698.46
+      ];
+
+      function playNote(freq, type, startTime, duration, vol, bus = dryBus) {
+        const osc = synthCtx.createOscillator();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, startTime);
+        const gain = synthCtx.createGain();
+        gain.gain.setValueAtTime(vol, startTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+        osc.connect(gain).connect(bus);
+        osc.start(startTime);
+        osc.stop(startTime + duration + 0.05);
+      }
+
+      function playNoise(startTime, duration, vol, cutoff, bus = dryBus) {
+        const bufferSize = Math.max(1, Math.floor(synthCtx.sampleRate * duration));
+        const buffer = synthCtx.createBuffer(1, bufferSize, synthCtx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+
+        const noise = synthCtx.createBufferSource();
+        noise.buffer = buffer;
+        const filter = synthCtx.createBiquadFilter();
+        filter.type = "bandpass";
+        filter.frequency.value = cutoff;
+        filter.Q.value = 0.8;
+        const gain = synthCtx.createGain();
+        gain.gain.setValueAtTime(vol, startTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+        noise.connect(filter).connect(gain).connect(bus);
+        noise.start(startTime);
+        noise.stop(startTime + duration + 0.05);
+      }
+
+      synthTimer = setInterval(() => {
+        const t = synthCtx.currentTime + 0.05;
+        const bar = Math.floor(step / 8);
+        const prog = progressions[Math.floor(bar / 4) % progressions.length];
+        const chord = prog[bar % prog.length];
+        const barPos = step % 8;
+
+        if (barPos === 0) {
+          chord.forEach((f, i) => {
+            playNote(f, "triangle", t, beat * 4.2, 0.06 - i * 0.01, padBus);
+          });
+          const sweep = 650 + Math.sin(step * 0.1) * 220;
+          padFilter.frequency.linearRampToValueAtTime(sweep, t + beat * 2.5);
+        }
+
+        if (barPos % 2 === 0) {
+          const root = chord[0] / 2;
+          playNote(root, "sine", t, beat * 0.95, 0.11);
+        }
+
+        if (barPos % 2 === 1) {
+          const pick = chord[(barPos + bar) % chord.length];
+          playNote(pick * 2, "triangle", t, beat * 0.35, 0.05);
+        }
+
+        if (Math.random() > 0.2) {
+          const leadNote = leadScale[(bar * 2 + barPos + Math.floor(Math.random() * 2)) % leadScale.length];
+          playNote(leadNote, "sine", t, beat * 0.45, 0.04);
+        }
+
+        playNoise(t, tick * 0.5, 0.05, 5000);
+        if (barPos === 2 || barPos === 6) {
+          playNoise(t, tick * 0.7, 0.08, 2400);
+        }
+
+        step = (step + 1) % 256;
+      }, tick * 1000);
+
+      bgmSource = "synth";
+      applyMuteState();
+      const hint = document.getElementById("musicHint");
+      if (hint) hint.textContent = "BGM：内置柔和 Lo-fi（放 bgm.mp3 可替换）";
+    }
+
+    function startBgm() {
+      if (bgmStarted) return;
+      ensureAudio();
+      bgmStarted = true;
+      const audio = document.getElementById("bgm");
+      if (audio) {
+        audio.onerror = () => {
+          if (bgmStarted) startFallbackSynth();
+        };
+        audio.volume = 0.4;
+        audio.play().then(() => {
+          bgmSource = "external";
+          applyMuteState();
+          const hint = document.getElementById("musicHint");
+          if (hint) hint.textContent = "BGM：正在播放 bgm.mp3（自定义）";
+        }).catch(() => {
+          const hint = document.getElementById("musicHint");
+          if (hint) hint.textContent = "BGM 播放被浏览器拦截或缺少文件，已切到内置柔和 Lo-fi";
+          startFallbackSynth();
+        });
+      } else {
+        startFallbackSynth();
+      }
+    }
+
+    // ===== 波次配置 =====
+    function getWaveConfig(wave) {
+      if (wave < TOTAL_WAVES) {
+        const baseCount = 5 + wave * 2;
+        const baseHp = 35 + wave * 10;
+        const baseSpeed = 70 + wave * 3;
+        const spawnInterval = Math.max(0.4, 1.2 - wave * 0.06);
+        return {
+          type: "normal",
+          count: baseCount,
+          hp: baseHp,
+          speed: baseSpeed,
+          reward: 8 + wave,
+          spawnInterval
+        };
+      } else {
+        return {
+          type: "boss",
+          count: 1,
+          hp: 2200,
+          speed: 55,
+          reward: 200,
+          spawnInterval: 0.0
+        };
+      }
+    }
+
+    function startWave(wave) {
+      const cfg = getWaveConfig(wave);
+      enemiesToSpawn = cfg.count;
+      waveSpawnInterval = cfg.spawnInterval;
+      spawnTimer = 0;
+      waveInProgress = true;
+      timeAfterWaveClear = 0;
+    }
+
+    // ===== 输入处理 =====
+    window.addEventListener("keydown", (e) => {
+      startBgm();
+      ensureAudio();
+      if (!gameStarted) handleStart();
+      if ([
+        "ArrowUp","ArrowDown","ArrowLeft","ArrowRight",
+        "w","a","s","d","W","A","S","D"
+      ].includes(e.key)) {
+        keys[e.key] = true;
+      }
+      if (e.key === "b" || e.key === "B") {
+        isBuildMode = !isBuildMode;
+        updateModeText();
+      }
+    });
+
+    window.addEventListener("keyup", (e) => {
+      if ([
+        "ArrowUp","ArrowDown","ArrowLeft","ArrowRight",
+        "w","a","s","d","W","A","S","D"
+      ].includes(e.key)) {
+        keys[e.key] = false;
+      }
+      if (e.key === "p" || e.key === "P") {
+        togglePause();
+      }
+    });
+
+    canvas.addEventListener("mousedown", (e) => {
+      startBgm();
+      ensureAudio();
+      if (!gameStarted) handleStart();
+      if (!isBuildMode || gameState !== "playing") return;
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const gx = Math.floor(mx / TILE_SIZE);
+      const gy = Math.floor(my / TILE_SIZE);
+      placeTower(gx, gy);
+    });
+
+    window.addEventListener("pointerdown", ensureAudio);
+
+    function updateMousePos(e) {
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      mousePos.x = mx;
+      mousePos.y = my;
+      mousePos.gx = clamp(Math.floor(mx / TILE_SIZE), 0, GRID_COLS - 1);
+      mousePos.gy = clamp(Math.floor(my / TILE_SIZE), 0, GRID_ROWS - 1);
+    }
+    canvas.addEventListener("mousemove", updateMousePos);
+    canvas.addEventListener("mouseenter", updateMousePos);
+
+    const startBtnEl = document.getElementById("startBtn");
+    const pauseBtnEl = document.getElementById("pauseBtn");
+    const bgmBtnEl = document.getElementById("bgmBtn");
+    const muteBtnEl = document.getElementById("muteBtn");
+    if (startBtnEl) startBtnEl.addEventListener("click", handleStart);
+    if (pauseBtnEl) pauseBtnEl.addEventListener("click", togglePause);
+    if (bgmBtnEl) bgmBtnEl.addEventListener("click", toggleBgm);
+    if (muteBtnEl) muteBtnEl.addEventListener("click", toggleMute);
+
+    function updateModeText() {
+      const modeSpan = document.getElementById("mode");
+      modeSpan.textContent = "模式: " + (isBuildMode ? "建塔模式" : "普通");
+    }
+
+    function updateControlsUI() {
+      const startBtn = document.getElementById("startBtn");
+      const pauseBtn = document.getElementById("pauseBtn");
+      const bgmBtn = document.getElementById("bgmBtn");
+      const muteBtn = document.getElementById("muteBtn");
+      if (startBtn) startBtn.textContent = gameStarted && !gamePaused ? "已开始" : "开始游戏";
+      if (pauseBtn) pauseBtn.textContent = gamePaused ? "继续" : "暂停";
+      if (bgmBtn) bgmBtn.textContent = bgmPaused ? "播放BGM" : "暂停BGM";
+      if (muteBtn) muteBtn.textContent = masterMuted ? "取消静音" : "全静音";
+    }
+
+    function handleStart() {
+      ensureAudio();
+      startBgm();
+      gameStarted = true;
+      gamePaused = false;
+      lastTime = performance.now();
+      updateControlsUI();
+    }
+
+    function togglePause() {
+      gamePaused = !gamePaused;
+      if (!gamePaused) lastTime = performance.now();
+      updateControlsUI();
+    }
+
+    function toggleBgm() {
+      ensureAudio();
+      if (!bgmStarted) startBgm();
+      bgmPaused = !bgmPaused;
+      const audio = document.getElementById("bgm");
+      if (audio && bgmSource === "external") {
+        if (bgmPaused || masterMuted) {
+          audio.pause();
+        } else {
+          audio.play().catch(() => {
+            bgmSource = "synth";
+            startFallbackSynth();
+          });
+        }
+      }
+      applyMuteState();
+      updateControlsUI();
+    }
+
+    function toggleMute() {
+      masterMuted = !masterMuted;
+      applyMuteState();
+      updateControlsUI();
+    }
+
+    // ===== 工具函数 =====
+    function clamp(v, min, max) {
+      return Math.max(min, Math.min(max, v));
+    }
+    function distanceSq(x1, y1, x2, y2) {
+      const dx = x1 - x2;
+      const dy = y1 - y2;
+      return dx * dx + dy * dy;
+    }
+
+    function drawImgCentered(img, x, y, targetH, rotation = 0) {
+      if (!img || !img.naturalWidth || !img.naturalHeight) return;
+      const h = targetH;
+      const w = img.naturalWidth * (h / img.naturalHeight);
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(rotation);
+      ctx.drawImage(img, -w / 2, -h / 2, w, h);
+      ctx.restore();
+    }
+
+    function updateHeroSpriteDom() {
+      if (!heroSpriteEl || !heroSpriteReady) return;
+      const h = 80;
+      const w = heroSpriteEl.naturalWidth ? heroSpriteEl.naturalWidth * (h / heroSpriteEl.naturalHeight) : h;
+      // 强制使用 canvas 原始坐标系，避免缩放/边框影响
+      const screenX = player.x;
+      const screenY = player.y;
+      heroSpriteEl.style.display = "block";
+      heroSpriteEl.style.width = `${w}px`;
+      heroSpriteEl.style.height = `${h}px`;
+      heroSpriteEl.style.left = `${screenX - w / 2}px`;
+      heroSpriteEl.style.top = `${screenY - h / 2 - 4}px`;
+
+      if (heroHpEl && heroHpFillEl) {
+        heroHpEl.style.display = "block";
+        heroHpEl.style.left = `${screenX - 30}px`;
+        heroHpEl.style.top = `${screenY - h / 2 - 14}px`;
+        const ratio = Math.max(0, Math.min(1, player.hp / player.maxHp));
+        heroHpFillEl.style.width = `${60 * ratio}px`;
+      }
+    }
+
+    function canPlaceTower(gx, gy) {
+      if (gx < 0 || gy < 0 || gx + towerFootprint > GRID_COLS || gy + towerFootprint > GRID_ROWS) return false;
+      for (let ix = 0; ix < towerFootprint; ix++) {
+        for (let iy = 0; iy < towerFootprint; iy++) {
+          const tx = gx + ix;
+          const ty = gy + iy;
+          if (isPathTile(tx, ty) || isObstacleTile(tx, ty)) return false;
+          for (const t of towers) {
+            if (tx >= t.gx && tx < t.gx + t.size && ty >= t.gy && ty < t.gy + t.size) return false;
+          }
+        }
+      }
+      const midX = (gx + towerFootprint / 2) * TILE_SIZE;
+      const midY = (gy + towerFootprint / 2) * TILE_SIZE;
+      if (distanceSq(midX, midY, player.x, player.y) < (40 * 40)) return false;
+      return true;
+    }
+
+    // ===== 英雄精灵生成（简易程序化贴图） =====
+    function genHeroFrame(phase = 0) {
+      const size = 72;
+      const off = document.createElement("canvas");
+      off.width = size;
+      off.height = size;
+      const c = off.getContext("2d");
+      c.translate(size / 2, size / 2 + 6);
+
+      const sway = Math.sin(phase * Math.PI * 2) * 4;
+
+      // 披风
+      const capeGrad = c.createLinearGradient(-12, -12, -30, 30);
+      capeGrad.addColorStop(0, "rgba(76,175,80,0.9)");
+      capeGrad.addColorStop(1, "rgba(27,94,32,0.75)");
+      c.fillStyle = capeGrad;
+      c.beginPath();
+      c.moveTo(-6 + sway * 0.2, -12);
+      c.quadraticCurveTo(-40 + sway, 8, -14 + sway * 0.6, 34);
+      c.lineTo(-2 + sway * 0.3, 16);
+      c.closePath();
+      c.fill();
+      c.strokeStyle = "rgba(200,255,200,0.3)";
+      c.lineWidth = 1.5;
+      c.beginPath();
+      c.moveTo(-8 + sway * 0.2, -8);
+      c.quadraticCurveTo(-30 + sway, 8, -10 + sway * 0.5, 26);
+      c.stroke();
+
+      // 身体
+      const torsoGrad = c.createLinearGradient(0, -16, 0, 18);
+      torsoGrad.addColorStop(0, "#78909c");
+      torsoGrad.addColorStop(1, "#455a64");
+      c.fillStyle = torsoGrad;
+      c.beginPath();
+      c.roundRect(-13, -16, 26, 32, 6);
+      c.fill();
+      c.strokeStyle = "rgba(255,255,255,0.3)";
+      c.lineWidth = 1;
+      c.strokeRect(-8, -10, 16, 10);
+      c.fillStyle = "#ffca28";
+      c.fillRect(-3, -5, 6, 6);
+
+      // 肩甲
+      c.fillStyle = "#90a4ae";
+      c.beginPath();
+      c.ellipse(-13, -10, 7, 5, 0, 0, Math.PI * 2);
+      c.ellipse(13, -10, 7, 5, 0, 0, Math.PI * 2);
+      c.fill();
+
+      // 腰带
+      c.fillStyle = "#ffca28";
+      c.fillRect(-13, 0, 26, 5);
+      c.fillStyle = "#e0a800";
+      c.fillRect(-3, 0, 6, 5);
+
+      // 头
+      c.beginPath();
+      c.arc(0, -24, 9, 0, Math.PI * 2);
+      c.fillStyle = "#ffe082";
+      c.fill();
+      c.fillStyle = "#546e7a";
+      c.beginPath();
+      c.moveTo(-11, -26);
+      c.quadraticCurveTo(0, -36, 11, -26);
+      c.lineTo(11, -20);
+      c.lineTo(-11, -20);
+      c.closePath();
+      c.fill();
+      c.fillStyle = "#90a4ae";
+      c.fillRect(-11, -22, 22, 5);
+      c.fillStyle = "#212121";
+      c.beginPath();
+      c.arc(-3, -21, 1.5, 0, Math.PI * 2);
+      c.arc(3, -21, 1.5, 0, Math.PI * 2);
+      c.fill();
+
+      // 左臂
+      c.fillStyle = "#ffe082";
+      c.beginPath();
+      c.roundRect(-16, -6, 6, 16, 3);
+      c.fill();
+      c.fillStyle = "#3e2723";
+      c.fillRect(-16, 8, 6, 3);
+
+      // 腿（简单摆动）
+      const legOffset = Math.sin(phase * Math.PI * 2) * 2;
+      c.fillStyle = "#455a64";
+      c.fillRect(-9, 14 + legOffset, 6, 14);
+      c.fillRect(3, 14 - legOffset, 6, 14);
+      c.fillStyle = "#3e2723";
+      c.fillRect(-9, 28 + legOffset, 6, 4);
+      c.fillRect(3, 28 - legOffset, 6, 4);
+      c.fillStyle = "#90a4ae";
+      c.fillRect(-9, 18 + legOffset, 6, 4);
+      c.fillRect(3, 18 - legOffset, 6, 4);
+
+      return off;
+    }
+
+    function buildHeroFrames() {
+      heroFrames = [];
+      const frameCount = 6;
+      for (let i = 0; i < frameCount; i++) {
+        heroFrames.push(genHeroFrame(i / frameCount));
+      }
+    }
+
+    function loadExternalSprites() {
+      heroImg = new Image();
+      heroImg.onload = () => { heroImgReady = true; };
+      heroImg.onerror = () => { heroImgReady = false; };
+      heroImg.src = "game_picture/Kunkun.gif";
+
+      heroSpriteEl = document.getElementById("heroSprite");
+      heroHpEl = document.getElementById("heroHp");
+      heroHpFillEl = document.getElementById("heroHpFill");
+      if (heroSpriteEl) {
+        heroSpriteEl.onload = () => { heroSpriteReady = true; heroSpriteEl.style.display = "block"; };
+        heroSpriteEl.onerror = () => { heroSpriteReady = false; heroSpriteEl.style.display = "none"; };
+        heroSpriteEl.src = "game_picture/Kunkun.gif";
+      }
+      if (heroSpriteEl) {
+        heroSpriteEl.onload = () => { heroSpriteReady = true; heroSpriteEl.style.display = "block"; };
+        heroSpriteEl.onerror = () => { heroSpriteReady = false; heroSpriteEl.style.display = "none"; };
+        heroSpriteEl.src = "game_picture/Kunkun.gif";
+      }
+
+      castleImg = new Image();
+      castleImg.onload = () => { castleImgReady = true; };
+      castleImg.onerror = () => { castleImgReady = false; };
+      castleImg.src = "game_picture/castle.png";
+
+      arrowImg = new Image();
+      arrowImg.onload = () => { arrowImgReady = true; };
+      arrowImg.onerror = () => { arrowImgReady = false; };
+      arrowImg.src = "game_picture/arrow.png";
+    }
+
+    // ===== 弓箭轨迹（投射物） =====
+    // fromHero: true 表示主角发射，false 表示塔发射
+    function spawnProjectile(sx, sy, tx, ty, damage, fromHero) {
+      const dx = tx - sx;
+      const dy = ty - sy;
+      const dist = Math.hypot(dx, dy) || 1;
+      const speed = fromHero ? 420 : 350;
+      playSfx("shoot", fromHero ? 1 : 0.85);
+      projectiles.push({
+        x: sx,
+        y: sy,
+        vx: (dx / dist) * speed,
+        vy: (dy / dist) * speed,
+        damage,
+        fromHero,
+        life: 2.5 // 最长飞行时间
+      });
+    }
+
+    function updateProjectiles(dt) {
+      for (let i = projectiles.length - 1; i >= 0; i--) {
+        const p = projectiles[i];
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.life -= dt;
+
+        if (p.life <= 0 ||
+            p.x < -20 || p.x > WIDTH + 20 ||
+            p.y < -20 || p.y > HEIGHT + 20) {
+          projectiles.splice(i, 1);
+          continue;
+        }
+
+        // 与敌人碰撞
+        let hitIndex = -1;
+        for (let j = 0; j < enemies.length; j++) {
+          const e = enemies[j];
+          const d2 = distanceSq(p.x, p.y, e.x, e.y);
+          const hitRadius = e.radius + 4;
+          if (d2 < hitRadius * hitRadius) {
+            hitIndex = j;
+            break;
+          }
+        }
+        if (hitIndex !== -1) {
+          const e = enemies[hitIndex];
+          e.hp -= p.damage;
+          playSfx("hit", e.type === "boss" ? 1.2 : 1);
+          addHitEffect(p.x, p.y, e.type === "boss");
+          projectiles.splice(i, 1);
+        }
+      }
+    }
+
+    function drawProjectiles() {
+      ctx.lineWidth = 2;
+      for (const p of projectiles) {
+        const angle = Math.atan2(p.vy, p.vx);
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(angle);
+        if (arrowImgReady) {
+          const h = 22;
+          const w = arrowImg.naturalWidth ? arrowImg.naturalWidth * (h / arrowImg.naturalHeight) : h * 2;
+          ctx.drawImage(arrowImg, -w * 0.2, -h / 2, w, h);
+        } else {
+          // 箭杆
+          ctx.strokeStyle = "#f5f5f5";
+          ctx.beginPath();
+          ctx.moveTo(-10, 0);
+          ctx.lineTo(6, 0);
+          ctx.stroke();
+          // 箭头
+          ctx.beginPath();
+          ctx.moveTo(6, 0);
+          ctx.lineTo(2, -3);
+          ctx.lineTo(2, 3);
+          ctx.closePath();
+          ctx.fillStyle = "#ffeb3b";
+          ctx.fill();
+          // 羽毛
+          ctx.beginPath();
+          ctx.moveTo(-10, 0);
+          ctx.lineTo(-14, -3);
+          ctx.lineTo(-14, 3);
+          ctx.closePath();
+          ctx.fillStyle = "#b0bec5";
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+    }
+
+    function drawBuildPreview() {
+      if (!isBuildMode) return;
+      const gx = mousePos.gx;
+      const gy = mousePos.gy;
+      const valid = canPlaceTower(gx, gy);
+      const sizePx = towerFootprint * TILE_SIZE;
+      const x = gx * TILE_SIZE;
+      const y = gy * TILE_SIZE;
+      ctx.save();
+      ctx.fillStyle = valid ? "rgba(76,175,80,0.25)" : "rgba(244,67,54,0.25)";
+      ctx.fillRect(x, y, sizePx, sizePx);
+      ctx.strokeStyle = valid ? "rgba(129,199,132,0.8)" : "rgba(244,67,54,0.9)";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x + 1, y + 1, sizePx - 2, sizePx - 2);
+      ctx.restore();
+    }
+
+    // ===== 怪物逻辑 =====
+    function spawnEnemyForCurrentWave() {
+      const cfg = getWaveConfig(currentWave);
+      if (enemiesToSpawn <= 0) return;
+      const pathIdx = Math.random() < 0.5 ? 0 : 1;
+      const pathPoints = pathPointsList[pathIdx];
+      const startPoint = pathPoints[0];
+
+      const isBoss = cfg.type === "boss" && enemiesToSpawn === cfg.count;
+      const enemy = {
+        x: startPoint.x,
+        y: startPoint.y,
+        radius: isBoss ? 28 : 16,
+        speed: cfg.speed,
+        hp: cfg.hp,
+        maxHp: cfg.hp,
+        reward: cfg.reward,
+        pathIndex: 0,
+        type: cfg.type,
+        color: isBoss ? "#ff5722" : "#e91e63",
+        coreDamage: isBoss ? 45 : 12,
+        pathPoints
+      };
+      enemies.push(enemy);
+      enemiesToSpawn--;
+    }
+
+    function updateEnemies(dt) {
+      for (let i = enemies.length - 1; i >= 0; i--) {
+        const e = enemies[i];
+
+        // 沿路径移动
+        const pathPoints = e.pathPoints;
+        const targetIndex = e.pathIndex + 1;
+        if (targetIndex < pathPoints.length) {
+          const tx = pathPoints[targetIndex].x;
+          const ty = pathPoints[targetIndex].y;
+          const dx = tx - e.x;
+          const dy = ty - e.y;
+          const dist = Math.hypot(dx, dy) || 1;
+          const step = e.speed * dt;
+
+          if (dist <= step) {
+            e.x = tx;
+            e.y = ty;
+            e.pathIndex++;
+          } else {
+            e.x += (dx / dist) * step;
+            e.y += (dy / dist) * step;
+          }
+        } else {
+          // 到城堡核心，造成伤害
+          core.hp -= e.coreDamage;
+          if (core.hp < 0) core.hp = 0;
+          playSfx("coreHit", e.type === "boss" ? 1.2 : 1);
+          addHitEffect(core.x, core.y, e.type === "boss");
+          enemies.splice(i, 1);
+          continue;
+        }
+
+        // 主角碰撞惩罚
+        const touchDistSq = distanceSq(e.x, e.y, player.x, player.y);
+        const minDist = e.radius + player.radius;
+        if (!playerDead && invulnTimer <= 0 && touchDistSq < minDist * minDist) {
+          player.hp -= 8;
+          if (player.hp < 0) player.hp = 0;
+          if (player.hp <= 0) {
+            playerDead = true;
+            respawnTimer = RESPAWN_TIME;
+            playSfx("death", e.type === "boss" ? 1.4 : 1.1);
+          }
+        }
+
+        if (e.hp <= 0) {
+          gold += e.reward;
+          playSfx("death", e.type === "boss" ? 1.4 : 1);
+          addHitEffect(e.x, e.y, e.type === "boss");
+          enemies.splice(i, 1);
+        }
+      }
+    }
+
+    function findNearestEnemyInRange(x, y, range) {
+      let best = null;
+      let bestDistSq = range * range;
+      for (const e of enemies) {
+        const d2 = distanceSq(x, y, e.x, e.y);
+        if (d2 <= bestDistSq) {
+          bestDistSq = d2;
+          best = e;
+        }
+      }
+      return best;
+    }
+
+    // ===== 玩家逻辑（弓箭手英雄） =====
+    function updatePlayer(dt) {
+      if (playerDead) {
+        respawnTimer -= dt;
+        if (respawnTimer <= 0) {
+          playerDead = false;
+          player.hp = player.maxHp;
+          invulnTimer = INVULN_TIME;
+          player.x = WIDTH / 2;
+          player.y = HEIGHT / 2;
+        }
+        return;
+      }
+
+      if (invulnTimer > 0) invulnTimer -= dt;
+
+      let vx = 0, vy = 0;
+      if (keys["ArrowUp"] || keys["w"] || keys["W"]) vy -= 1;
+      if (keys["ArrowDown"] || keys["s"] || keys["S"]) vy += 1;
+      if (keys["ArrowLeft"] || keys["a"] || keys["A"]) vx -= 1;
+      if (keys["ArrowRight"] || keys["d"] || keys["D"]) vx += 1;
+
+      if (vx !== 0 || vy !== 0) {
+        const len = Math.hypot(vx, vy);
+        vx /= len;
+        vy /= len;
+      }
+
+      player.x += vx * player.speed * dt;
+      player.y += vy * player.speed * dt;
+      player.x = clamp(player.x, player.radius, WIDTH - player.radius);
+      player.y = clamp(player.y, player.radius, HEIGHT - player.radius);
+
+      // 攻击逻辑：找最近敌人，发射箭矢
+      player.attackTimer -= dt;
+      const target = findNearestEnemyInRange(player.x, player.y, player.attackRange);
+      if (target) {
+        const angle = Math.atan2(target.y - player.y, target.x - player.x);
+        player.facingAngle = angle;
+        if (player.attackTimer <= 0) {
+          spawnProjectile(player.x, player.y - 2, target.x, target.y, player.attackDamage, true);
+          player.attackTimer = player.attackCooldown;
+        }
+      } else {
+        // 没目标时，如果在移动，就面向移动方向
+        if (vx !== 0 || vy !== 0) {
+          player.facingAngle = Math.atan2(vy, vx);
+        }
+      }
+    }
+
+    // ===== 塔逻辑（射箭塔） =====
+    function placeTower(gx, gy) {
+      if (!canPlaceTower(gx, gy)) return;
+      if (gold < towerCost) return;
+      const x = (gx + towerFootprint / 2) * TILE_SIZE;
+      const y = (gy + towerFootprint / 2) * TILE_SIZE;
+      gold -= towerCost;
+      towers.push({
+        gx,
+        gy,
+        x,
+        y,
+        size: towerFootprint,
+        radius: 18,
+        attackRange: 190,
+        attackDamage: 13,
+        cooldown: 0.75,
+        timer: 0,
+        facingAngle: 0
+      });
+    }
+
+    function updateTowers(dt) {
+      for (const t of towers) {
+        t.timer -= dt;
+        if (t.timer <= 0) {
+          const target = findNearestEnemyInRange(t.x, t.y, t.attackRange);
+          if (target) {
+            t.facingAngle = Math.atan2(target.y - t.y, target.x - t.x);
+            spawnProjectile(t.x, t.y - 4, target.x, target.y, t.attackDamage, false);
+            t.timer = t.cooldown;
+          }
+        }
+      }
+    }
+
+    // ===== 绘制：背景&地图 =====
+    function drawBackground() {
+      // 天空与远山
+      const sky = ctx.createLinearGradient(0, 0, 0, 180);
+      sky.addColorStop(0, "#1d2b44");
+      sky.addColorStop(1, "rgba(13,30,24,0.0)");
+      ctx.fillStyle = sky;
+      ctx.fillRect(0, 0, WIDTH, 180);
+
+      ctx.fillStyle = "#203529";
+      for (let i = 0; i < 5; i++) {
+        const baseY = 150 + Math.sin(i * 1.3) * 12;
+        const peakX = (WIDTH / 5) * i + 80;
+        ctx.beginPath();
+        ctx.moveTo(peakX - 160, baseY + 60);
+        ctx.lineTo(peakX, baseY);
+        ctx.lineTo(peakX + 160, baseY + 60);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // 渐变草地
+      const grd = ctx.createLinearGradient(0, 120, 0, HEIGHT);
+      grd.addColorStop(0, "#1a4f25");
+      grd.addColorStop(1, "#0f3a17");
+      ctx.fillStyle = grd;
+      ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+      // 草地斑点
+      for (const g of grassPatches) {
+        ctx.fillStyle = `rgba(46,125,50,${g.a})`;
+        ctx.beginPath();
+        ctx.arc(g.x, g.y, g.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawGridAndPath() {
+      // 土路：多条路径使用不同色调，连续填充
+      const colors = [["#6d4c41", "#4e342e"], ["#5d4037", "#3e2723"]];
+      paths.forEach((path, idx) => {
+        for (const t of path) {
+          const x = t.gx * TILE_SIZE;
+          const y = t.gy * TILE_SIZE;
+          const grd = ctx.createLinearGradient(x, y, x, y + TILE_SIZE);
+          grd.addColorStop(0, colors[idx % colors.length][0]);
+          grd.addColorStop(1, colors[idx % colors.length][1]);
+          ctx.fillStyle = grd;
+          ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+        }
+      });
+
+      // 障碍物
+      for (const o of obstacles) {
+        const widthPx = o.size * TILE_SIZE;
+        const heightPx = o.size * TILE_SIZE;
+        const cx = o.gx * TILE_SIZE + widthPx / 2;
+        const cy = o.gy * TILE_SIZE + heightPx / 2;
+        // 阴影
+        ctx.fillStyle = "rgba(0,0,0,0.32)";
+        ctx.beginPath();
+        ctx.ellipse(cx + 4, cy + 10, widthPx * 0.5, heightPx * 0.22, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (o.type === "tree") {
+          const foliageGrad = ctx.createRadialGradient(cx, cy - 6, 4, cx, cy - 6, widthPx * 0.5);
+          foliageGrad.addColorStop(0, "#66bb6a");
+          foliageGrad.addColorStop(1, "#2e7d32");
+          ctx.fillStyle = foliageGrad;
+          ctx.beginPath();
+          ctx.arc(cx, cy - 4, widthPx * 0.45, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "rgba(0,0,0,0.2)";
+          ctx.beginPath();
+          ctx.arc(cx - widthPx * 0.2, cy - 2, widthPx * 0.25, 0, Math.PI * 2);
+          ctx.arc(cx + widthPx * 0.2, cy, widthPx * 0.22, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "#8d6e63";
+          ctx.beginPath();
+          ctx.roundRect(cx - widthPx * 0.08, cy - heightPx * 0.05, widthPx * 0.16, heightPx * 0.45, 2);
+          ctx.fill();
+        } else {
+          const rockGrad = ctx.createLinearGradient(cx - widthPx * 0.5, cy - heightPx * 0.3, cx + widthPx * 0.5, cy + heightPx * 0.3);
+          rockGrad.addColorStop(0, "#cfd8dc");
+          rockGrad.addColorStop(1, "#90a4ae");
+          ctx.fillStyle = rockGrad;
+          ctx.beginPath();
+          ctx.ellipse(cx, cy, widthPx * 0.45, heightPx * 0.28, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "rgba(255,255,255,0.35)";
+          ctx.beginPath();
+          ctx.ellipse(cx + widthPx * 0.12, cy - heightPx * 0.15, widthPx * 0.22, heightPx * 0.16, 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      // 网格线
+      ctx.strokeStyle = "rgba(0,0,0,0.25)";
+      ctx.lineWidth = 1;
+      for (let x = 0; x <= WIDTH; x += TILE_SIZE) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, HEIGHT);
+        ctx.stroke();
+      }
+      for (let y = 0; y <= HEIGHT; y += TILE_SIZE) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(WIDTH, y);
+        ctx.stroke();
+      }
+    }
+
+    function drawHpBar(x, y, w, h, hp, maxHp, color = "#4caf50") {
+      ctx.fillStyle = "rgba(0,0,0,0.6)";
+      ctx.fillRect(x, y, w, h);
+      const ratio = clamp(hp / maxHp, 0, 1);
+      ctx.fillStyle = color;
+      ctx.fillRect(x, y, w * ratio, h);
+    }
+
+    // ===== 绘制：弓箭手英雄 =====
+    
+    function drawPlayer() {
+      // 阴影
+      ctx.fillStyle = "rgba(0,0,0,0.35)";
+      ctx.beginPath();
+      ctx.ellipse(player.x + 4, player.y + 10, player.radius * 1.2, player.radius * 0.55, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 攻击范围圈
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, player.attackRange, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(76, 175, 80, 0.2)";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // 使用外部贴图优先，其次程序帧
+      const frame = heroImgReady ? heroImg : (heroFrames.length ? heroFrames[Math.floor(heroAnimTime * 8) % heroFrames.length] : null);
+      ctx.save();
+      ctx.translate(player.x, player.y);
+      if (frame && !heroSpriteReady) {
+        const h = 80;
+        const w = frame.naturalWidth ? frame.naturalWidth * (h / frame.naturalHeight) : frame.width;
+        ctx.drawImage(frame, -w / 2, -h / 2 - 4, w, h);
+      }
+      ctx.restore();
+    }
+
+    // ===== 绘制：城堡核心 =====
+    function drawCore() {
+      // 厚重贴地阴影与地基（收紧到靠近城墙）
+      ctx.fillStyle = "rgba(0,0,0,0.48)";
+      ctx.beginPath();
+      ctx.ellipse(core.x + 2, core.y + core.radius, core.radius * 1.12, core.radius * 0.38, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // 紧贴墙体的棕色底座条
+      ctx.fillStyle = "#5d4037";
+      ctx.fillRect(core.x - 50, core.y + core.radius - 4, 100, 8);
+
+      if (castleImgReady) {
+        drawImgCentered(castleImg, core.x, core.y, 140);
+      } else {
+        ctx.save();
+        ctx.translate(core.x, core.y);
+
+        const w = 90;
+        const h = 46;
+        const depth = 14;
+
+        // 前立面
+        const frontGrad = ctx.createLinearGradient(0, -h, 0, 0);
+        frontGrad.addColorStop(0, "#dfe5e8");
+        frontGrad.addColorStop(1, "#9ea8b0");
+        ctx.fillStyle = frontGrad;
+        ctx.fillRect(-w / 2, -h, w, h);
+        // 立面砖线
+        ctx.strokeStyle = "rgba(0,0,0,0.12)";
+        ctx.lineWidth = 1;
+        for (let i = -w / 2 + 6; i < w / 2; i += 12) {
+          ctx.beginPath();
+          ctx.moveTo(i, -h + 10);
+          ctx.lineTo(i, 0);
+          ctx.stroke();
+        }
+        // 水平缝
+        ctx.beginPath();
+        ctx.moveTo(-w / 2, -h + 18);
+        ctx.lineTo(w / 2, -h + 18);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-w / 2, -h + 32);
+        ctx.lineTo(w / 2, -h + 32);
+        ctx.stroke();
+        // 窗户
+        ctx.fillStyle = "#1e3a5f";
+        ctx.fillRect(-w / 4 - 6, -h + 16, 12, 10);
+        ctx.fillRect(w / 4 - 6, -h + 16, 12, 10);
+        // 大门
+        ctx.fillStyle = "#5d4037";
+        ctx.beginPath();
+        ctx.roundRect(-10, -12, 20, 22, 4);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(0,0,0,0.3)";
+        ctx.strokeRect(-10, -12, 20, 22);
+
+        // 顶缘蓝带 + 垛口
+        ctx.fillStyle = "#1e88e5";
+        ctx.fillRect(-w / 2, -h - 10, w, 10);
+        ctx.fillStyle = "#cfd8dc";
+        const crenelW = 10;
+        const crenelH = 8;
+        for (let x = -w / 2; x < w / 2; x += crenelW * 1.5) {
+          ctx.fillRect(x, -h - crenelH - 10, crenelW, crenelH);
+        }
+
+        // 右侧面（增加体积感）
+        const sideGrad = ctx.createLinearGradient(w / 2, -h, w / 2 + depth, 0);
+        sideGrad.addColorStop(0, "#b0bec5");
+        sideGrad.addColorStop(1, "#8a949c");
+        ctx.fillStyle = sideGrad;
+        ctx.beginPath();
+        ctx.moveTo(w / 2, -h);
+        ctx.lineTo(w / 2 + depth, -h + 6);
+        ctx.lineTo(w / 2 + depth, 6);
+        ctx.lineTo(w / 2, 0);
+        ctx.closePath();
+        ctx.fill();
+
+        // 中央塔顶
+        ctx.fillStyle = "#b0bec5";
+        ctx.fillRect(-16, -h - 30, 32, 30);
+        ctx.fillStyle = "#90a4ae";
+        ctx.beginPath();
+        ctx.moveTo(-16, -h - 30);
+        ctx.lineTo(0, -h - 52);
+        ctx.lineTo(16, -h - 30);
+        ctx.closePath();
+        ctx.fill();
+        // 顶部旗帜
+        ctx.fillStyle = "#ff7043";
+        ctx.fillRect(-2, -h - 52, 4, 16);
+        ctx.beginPath();
+        ctx.moveTo(2, -h - 52);
+        ctx.lineTo(12, -h - 56);
+        ctx.lineTo(2, -h - 60);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.restore();
+      }
+
+      // 城堡血条
+      drawHpBar(core.x - 35, core.y - core.radius - 26, 70, 7, core.hp, core.maxHp, "#03a9f4");
+    }
+
+    // ===== 绘制：怪物 =====
+    function drawEnemies() {
+      for (const e of enemies) {
+        // 阴影
+        ctx.fillStyle = "rgba(0,0,0,0.32)";
+        ctx.beginPath();
+        ctx.ellipse(e.x + 4, e.y + 10, e.radius * 1.1, e.radius * 0.55, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.save();
+        ctx.translate(e.x, e.y);
+
+        // 身体渐变
+        const grd = ctx.createRadialGradient(0, -4, e.radius * 0.2, 0, 0, e.radius);
+        grd.addColorStop(0, e.type === "boss" ? "#ff8a65" : "#f48fb1");
+        grd.addColorStop(1, e.type === "boss" ? "#e64a19" : "#d81b60");
+        ctx.fillStyle = grd;
+        ctx.beginPath();
+        ctx.arc(0, 0, e.radius, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 护甲环带
+        ctx.strokeStyle = "rgba(255,255,255,0.25)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, e.radius * 0.7, -Math.PI * 0.6, Math.PI * 0.6);
+        ctx.stroke();
+
+        // 眼睛 + 眉
+        ctx.fillStyle = "#111";
+        ctx.beginPath();
+        ctx.arc(-4, -4, 2, 0, Math.PI * 2);
+        ctx.arc(4, -4, 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(0,0,0,0.6)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(-6, -7);
+        ctx.lineTo(-2, -6);
+        ctx.moveTo(2, -6);
+        ctx.lineTo(6, -7);
+        ctx.stroke();
+
+        // 角/冠饰
+        ctx.fillStyle = e.type === "boss" ? "#ffe082" : "#fff176";
+        ctx.beginPath();
+        ctx.moveTo(-6, -e.radius + 2);
+        ctx.lineTo(-2, -e.radius - 6);
+        ctx.lineTo(2, -e.radius + 2);
+        ctx.closePath();
+        ctx.fill();
+        if (e.type === "boss") {
+          ctx.beginPath();
+          ctx.moveTo(4, -e.radius + 1);
+          ctx.lineTo(8, -e.radius - 5);
+          ctx.lineTo(12, -e.radius + 1);
+          ctx.closePath();
+          ctx.fill();
+        }
+
+        // 口罩/护颊
+        ctx.fillStyle = "rgba(0,0,0,0.35)";
+        ctx.beginPath();
+        ctx.ellipse(0, 2, 8, 6, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+
+        const barWidth = e.type === "boss" ? 60 : 30;
+        drawHpBar(
+          e.x - barWidth / 2,
+          e.y - e.radius - 10,
+          barWidth,
+          4,
+          e.hp,
+          e.maxHp,
+          e.type === "boss" ? "#ffcc80" : "#ff8a80"
+        );
+      }
+    }
+
+    // ===== 绘制：防御塔（箭塔） =====
+    function drawTowers() {
+      for (const t of towers) {
+        // 阴影
+        ctx.fillStyle = "rgba(0,0,0,0.35)";
+        ctx.beginPath();
+        ctx.ellipse(t.x + 4, t.y + 10, (TILE_SIZE * t.size) * 0.42, (TILE_SIZE * t.size) * 0.18, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 范围圈
+        ctx.beginPath();
+        ctx.arc(t.x, t.y, t.attackRange, 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(255, 235, 59, 0.16)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        ctx.save();
+        ctx.translate(t.x, t.y);
+
+        // 新塔造型：圆柱塔身 + 顶部观测台
+        const baseR = (t.radius + 5) * 0.66;   // 再瘦一些
+        const rimR = (t.radius + 3) * 0.7;
+        const cylH = TILE_SIZE * 2.0; // 高身保持
+
+        // 圆柱侧面 + 砖纹
+        const sideGrad = ctx.createLinearGradient(0, -cylH / 2, 0, cylH / 2);
+        sideGrad.addColorStop(0, "#d8e0e4");
+        sideGrad.addColorStop(1, "#90a4ae");
+        ctx.fillStyle = sideGrad;
+        ctx.beginPath();
+        ctx.roundRect(-baseR, -cylH / 2, baseR * 2, cylH, baseR * 0.25);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(0,0,0,0.12)";
+        ctx.lineWidth = 1;
+        for (let y = -cylH / 2 + 6; y < cylH / 2; y += 8) {
+          ctx.beginPath();
+          ctx.moveTo(-baseR + 4, y);
+          ctx.lineTo(baseR - 4, y);
+          ctx.stroke();
+        }
+
+        // 圆柱顶部椭圆
+        ctx.fillStyle = "#b0bec5";
+        ctx.beginPath();
+        ctx.ellipse(0, -cylH / 2, baseR, baseR * 0.35, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#eceff1";
+        ctx.beginPath();
+        ctx.ellipse(0, -cylH / 2 - 2, baseR * 0.75, baseR * 0.26, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 顶部环台
+        ctx.fillStyle = "#546e7a";
+        ctx.beginPath();
+        ctx.ellipse(0, -cylH / 2 - 6, rimR, rimR * 0.35, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#263238";
+        ctx.beginPath();
+        ctx.ellipse(0, -cylH / 2 - 8, rimR - 3, (rimR - 3) * 0.35, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 小旗
+        ctx.fillStyle = "#ff7043";
+        ctx.fillRect(-2, -cylH / 2 - rimR - 8, 4, 12);
+        ctx.beginPath();
+        ctx.moveTo(2, -cylH / 2 - rimR - 8);
+        ctx.lineTo(12, -cylH / 2 - rimR - 12);
+        ctx.lineTo(2, -cylH / 2 - rimR - 16);
+        ctx.closePath();
+        ctx.fill();
+
+        // 顶部塔帽
+        const capY = -cylH / 2 - rimR - 6;
+        ctx.fillStyle = "#b0bec5";
+        ctx.beginPath();
+        ctx.ellipse(0, capY, rimR * 0.9, rimR * 0.3, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#90a4ae";
+        ctx.beginPath();
+        ctx.moveTo(-rimR * 0.7, capY);
+        ctx.lineTo(0, capY - rimR * 0.9);
+        ctx.lineTo(rimR * 0.7, capY);
+        ctx.closePath();
+        ctx.fill();
+
+        // 顶部弓箭手（围绕自身旋转弓），缩小并下移
+        const aim = t.facingAngle || 0;
+        const archerY = -cylH / 2 - rimR + 6;
+        ctx.save();
+        ctx.translate(0, archerY);
+        // 阴影
+        ctx.fillStyle = "rgba(0,0,0,0.2)";
+        ctx.beginPath();
+        ctx.ellipse(2, 8, 9, 3, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // 身体
+        ctx.fillStyle = "#546e7a";
+        ctx.beginPath();
+        ctx.roundRect(-5, -10, 10, 12, 3);
+        ctx.fill();
+        // 胸甲装饰
+        ctx.strokeStyle = "rgba(255,255,255,0.3)";
+        ctx.lineWidth = 0.8;
+        ctx.strokeRect(-3, -8, 6, 6);
+        // 头
+        ctx.fillStyle = "#ffe082";
+        ctx.beginPath();
+        ctx.arc(0, -12, 4.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#5d4037";
+        ctx.fillRect(-4.5, -15.5, 9, 3.5);
+        // 手固定
+        ctx.fillStyle = "#ffe082";
+        ctx.beginPath();
+        ctx.arc(-5, -4, 2, 0, Math.PI * 2);
+        ctx.arc(-5, 2, 2, 0, Math.PI * 2);
+        ctx.fill();
+        // 弓旋转在弓手处
+        ctx.save();
+        ctx.rotate(aim);
+        ctx.strokeStyle = "#8d6e63";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(10, -10);
+        ctx.quadraticCurveTo(16, 0, 10, 10);
+        ctx.stroke();
+        ctx.strokeStyle = "rgba(245,245,245,0.9)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(10, -10);
+        ctx.lineTo(10, 10);
+        ctx.stroke();
+        // 弓手
+        ctx.fillStyle = "#ffe082";
+        ctx.beginPath();
+        ctx.arc(4, -4, 2.2, 0, Math.PI * 2);
+        ctx.arc(4, 4, 2.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        ctx.restore();
+
+        ctx.restore();
+      }
+    }
+
+    // ===== 绘制：覆盖信息 =====
+    function drawOverlay() {
+      if (gameState === "defeat") {
+        ctx.fillStyle = "rgba(0,0,0,0.65)";
+        ctx.fillRect(0, 0, WIDTH, HEIGHT);
+        ctx.fillStyle = "#ff5252";
+        ctx.font = "40px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("防线被突破，城堡被摧毁", WIDTH / 2, HEIGHT / 2 - 20);
+        ctx.font = "20px sans-serif";
+        ctx.fillStyle = "#fff";
+        ctx.fillText("刷新页面重新开始", WIDTH / 2, HEIGHT / 2 + 20);
+      } else if (gameState === "victory") {
+        ctx.fillStyle = "rgba(0,0,0,0.65)";
+        ctx.fillRect(0, 0, WIDTH, HEIGHT);
+        ctx.fillStyle = "#4caf50";
+        ctx.font = "40px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("通关成功！你守住了城堡", WIDTH / 2, HEIGHT / 2 - 20);
+        ctx.font = "20px sans-serif";
+        ctx.fillStyle = "#fff";
+        ctx.fillText("可以改策划 / 调数值做更难的版本", WIDTH / 2, HEIGHT / 2 + 20);
+      } else if (playerDead) {
+        ctx.fillStyle = "rgba(0,0,0,0.55)";
+        ctx.fillRect(0, 0, WIDTH, HEIGHT);
+        ctx.fillStyle = "#ffeb3b";
+        ctx.font = "32px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("主角倒下，准备复活…", WIDTH / 2, HEIGHT / 2 - 8);
+        ctx.font = "20px sans-serif";
+        ctx.fillStyle = "#fff";
+        const cd = Math.max(0, respawnTimer).toFixed(1);
+        ctx.fillText(`复活倒计时：${cd} 秒`, WIDTH / 2, HEIGHT / 2 + 22);
+      } else if (gamePaused) {
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        ctx.fillRect(0, 0, WIDTH, HEIGHT);
+        ctx.fillStyle = "#fff";
+        ctx.font = "30px sans-serif";
+        ctx.textAlign = "center";
+        const msg = gameStarted ? "游戏暂停" : "点击“开始游戏”开启音频并开始";
+        ctx.fillText(msg, WIDTH / 2, HEIGHT / 2);
+      } else if (isBuildMode && gameState === "playing") {
+        ctx.fillStyle = "rgba(0,0,0,0.3)";
+        ctx.fillRect(0, 0, WIDTH, HEIGHT);
+        ctx.fillStyle = "#fff";
+        ctx.font = "18px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(`建塔模式：左键放置（占 ${towerFootprint}x${towerFootprint} 小格，${towerCost} 金币）`, WIDTH / 2, 28);
+        ctx.fillText("绿色=可放置，红色=被阻挡/路径/障碍/太近角色", WIDTH / 2, 52);
+      } else {
+        if (!waveInProgress && currentWave <= TOTAL_WAVES) {
+          ctx.fillStyle = "rgba(0,0,0,0.4)";
+          ctx.fillRect(0, 0, WIDTH, 30);
+          ctx.fillStyle = "#fff";
+          ctx.font = "16px sans-serif";
+          ctx.textAlign = "center";
+          const isBossWave = currentWave === TOTAL_WAVES;
+          const msg = isBossWave
+            ? `第 ${currentWave} 波：最终 Boss 即将到来！`
+            : `第 ${currentWave} 波准备中…`;
+          ctx.fillText(msg, WIDTH / 2, 20);
+        }
+      }
+    }
+
+    // ===== UI 文本 =====
+    function updateDOMUI() {
+      document.getElementById("gold").textContent = "金币: " + gold;
+      document.getElementById("hp").textContent = "主角: " + player.hp;
+      document.getElementById("core").textContent = "核心: " + core.hp;
+      const waveText = currentWave > TOTAL_WAVES
+        ? `波次: 完成`
+        : `波次: ${currentWave} / ${TOTAL_WAVES}`;
+      document.getElementById("wave").textContent = waveText;
+    }
+
+    // ===== 主循环 =====
+    function gameLoop(timestamp) {
+      const dt = (timestamp - lastTime) / 1000;
+      lastTime = timestamp;
+
+      if (gamePaused) {
+        drawBackground();
+        drawGridAndPath();
+        drawTowers();
+        drawBuildPreview();
+        drawEnemies();
+        drawPlayer();
+        drawCore();
+        drawProjectiles();
+        drawHitEffects();
+        drawOverlay();
+        updateHeroSpriteDom();
+        updateDOMUI();
+        requestAnimationFrame(gameLoop);
+        return;
+      }
+
+      if (gameState === "playing") {
+        if (!waveInProgress && enemies.length === 0 && currentWave === 1 && timeAfterWaveClear === 0) {
+          startWave(currentWave);
+        }
+        heroAnimTime += dt;
+
+        if (waveInProgress) {
+          spawnTimer += dt;
+          if (spawnTimer >= waveSpawnInterval) {
+            spawnTimer = 0;
+            if (enemiesToSpawn > 0) {
+              spawnEnemyForCurrentWave();
+            }
+          }
+          if (enemiesToSpawn <= 0 && enemies.length === 0) {
+            waveInProgress = false;
+            timeAfterWaveClear = 0;
+            currentWave++;
+          }
+        } else {
+          timeAfterWaveClear += dt;
+          if (timeAfterWaveClear >= timeBetweenWaves && currentWave <= TOTAL_WAVES) {
+            startWave(currentWave);
+          }
+        }
+
+        updatePlayer(dt);
+        updateEnemies(dt);
+        updateTowers(dt);
+        updateProjectiles(dt);
+        updateHitEffects(dt);
+
+        if (core.hp <= 0) {
+          gameState = "defeat";
+        } else if (currentWave > TOTAL_WAVES && enemies.length === 0 && enemiesToSpawn === 0) {
+          gameState = "victory";
+        }
+      } else {
+        updateProjectiles(dt);
+        updateHitEffects(dt);
+      }
+
+      // 绘制
+      drawBackground();
+      drawGridAndPath();
+      drawTowers();
+      drawBuildPreview();
+      drawEnemies();
+      drawPlayer();
+      drawCore();
+      drawProjectiles();
+      drawHitEffects();
+      drawOverlay();
+
+      updateHeroSpriteDom();
+      updateDOMUI();
+      requestAnimationFrame(gameLoop);
+    }
+
+    // ===== 启动 =====
+    updateModeText();
+    updateControlsUI();
+    buildHeroFrames();
+    loadExternalSprites();
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>

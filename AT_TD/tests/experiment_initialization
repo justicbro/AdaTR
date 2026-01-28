@@ -1,0 +1,75 @@
+python AT_TD/tests/experiment_optimize_G_list_noisy.py \
+  --shape 30 30 30 \
+  --ranks 3 3 3 3 \
+  --seeds 66 77 88 99\
+  --inner-num-steps 200 \
+  --outer-num-steps 40 \
+  --inner-dis-num 20 \
+  --defence-lr 0.05 \
+  --inner-tol 1e-8 \
+  --verbose
+
+
+
+python AT_TD/tests/experiment_optimize_G_list_noisy.py \
+  --shape 30 30 30 \
+  --ranks 3 3 3 3 \
+  --init-seed 88 \
+  --init-stds 0.05 0.1 0.2 \
+  --inner-num-steps 1000 \
+  --outer-num-steps 1 \
+  --inner-dis-num 1 \
+  --defence-lr 0.05 \
+  --inner-tol 1e-8 \
+  --verbose
+
+python AT_TD/tests/experiment_optimize_G_list_noisy.py --data-source image --start-index 1 --end-index 3 --ranks 3 3 3 3 --init-stds 0.05 0.1 0.2 --verbose
+
+python AT_TD/tests/experiment_optimize_G_list_noisy.py \
+  --data-source image \
+  --start-index 1 \
+  --end-index 1 \
+  --init-seed 88 \
+  --ranks 3 3 3 3 \
+  --init-stds 0.05 0.5 1 \
+  --resize-width 200 \
+  --inner-num-steps 500 \
+  --outer-num-steps 50 \
+  --inner-dis-num 200 \
+  --defence-lr 0.05 \
+  --inner-tol 1e-8 \
+  --verbose
+
+  python AT_TD/tests/experiment_optimize_G_list_noisy.py --init-distributions normal uniform laplace --init-stds 0.05 0.5 1
+
+  python AT_TD/tests/experiment_optimize_G_list_noisy.py \
+  --init-distributions normal uniform laplace \
+  --data-source image \
+  --start-index 1 \
+  --end-index 1 \
+  --init-seed 88 \
+  --ranks 3 3 3 3 \
+  --init-stds 0.05\
+  --resize-width 200 \
+  --inner-num-steps 500 \
+  --outer-num-steps 50 \
+  --inner-dis-num 200 \
+  --defence-lr 0.05 \
+  --inner-tol 1e-8 \
+  --verbose
+
+  python AT_TD/tests/experiment_optimize_G_list_noisy.py \
+  --data-source synthetic \
+  --shape 30 30 10 \
+  --ranks 4 4 4 4 \
+  --init-distributions normal \
+  --init-stds 0.1 \
+  --enable-shared-init-exp \
+  --shared-init-only \
+  --shared-train-count 6 \
+  --shared-test-index 7 \
+  --inner-num-steps 300 --outer-num-steps 50 \
+  --inner-dis-num 2000 \
+  --inner-tol 1e-8 \
+  --defence-lr 0.1 \
+  --verbose

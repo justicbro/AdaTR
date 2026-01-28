@@ -124,7 +124,7 @@ def display_images(original_image, images, row_titles, col_titles, rows, cols, f
         plt.savefig(save_path)
     plt.show()
 
-def objective_function_ATTR(X, G_list, E, iner_num_steps = 100, inner_tol = 1e-10):
+def objective_function_ATTR(X, G_list, E, inner_num_steps = 100, inner_tol = 1e-10):
     """
     Compute the objective function ||X - TN([G^(k)])||_F^2.
     X: Original tensor (PyTorch tensor)
@@ -138,8 +138,8 @@ def objective_function_ATTR(X, G_list, E, iner_num_steps = 100, inner_tol = 1e-1
 
     X_tube = X + E
 
-    tr_cores = tr.tr_decompose2(X_tube, G_list, max_iter=iner_num_steps, tol=inner_tol, dis_num = 2000, device="cuda")
-    # tr_cores = tr.tr_decompose(X_tube, ranks, max_iter=iner_num_steps, tol=inner_tol, dis_num = 2000, device="cuda")
+    tr_cores = tr.tr_decompose2(X_tube, G_list, max_iter=inner_num_steps, tol=inner_tol, dis_num = 2000, device="cuda")
+    # tr_cores = tr.tr_decompose(X_tube, ranks, max_iter=inner_num_steps, tol=inner_tol, dis_num = 2000, device="cuda")
 
     # del X_tube
     # torch.cuda.empty_cache()
@@ -738,6 +738,14 @@ def process_image(image_path, output_folder, config):
         # 保存图像
         plt.savefig(os.path.join(output_folder, f'step_vs_comp_epsilon_{config.epsilon}.png'))
         plt.show()
+        # 保存数据
+        np.savez(
+            os.path.join(output_folder, f"loss_curves_epsilon_{config.epsilon}.npz"),
+            loss_ours=np.array(loss_ours),
+            loss_ours_F=np.array(loss_ours_F),
+            loss_ATR=np.array(loss_ATR),
+            norm2_original_TR_algorithm=norm2_original_TR_algorithm
+        )
 
 
 
@@ -750,7 +758,7 @@ if __name__ == "__main__":
     # lena = Image.open('lena.png')
     # input_folder = './AT_TD/My picture'
     input_folder = './AT_TD'
-    output_folder = './AT_TD/epgilon_compare_results7'
+    output_folder = './AT_TD/epgilon_compare_results9'
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
 
@@ -794,11 +802,13 @@ if __name__ == "__main__":
     times = []
     norms = []
     epsilons = [5 * i for i in range(1, 10)]
+    # epsilons = 500
     loss_ours_last = []
     loss_ours_F_last = []
     loss_ATR_last = []
     for epsilon in epsilons:
         config.epsilon = epsilon
+        # config.epsilon = 66
         logging.info(f"Testing with epsilon: {epsilon}")
         image_name = 'lena.png'
         image_path = os.path.join(input_folder, image_name)
@@ -807,25 +817,32 @@ if __name__ == "__main__":
             loss_ours_last.append(loss_ours_last_val)
             loss_ours_F_last.append(loss_ours_F_last_val)
             loss_ATR_last.append(loss_ATR_last_val)
-        
-    plt.figure(figsize=(10, 6))
-    plt.plot(epsilons, loss_ours_last, marker='o', label='Ours')
-    plt.plot(epsilons, loss_ours_F_last, marker='o', label='Ours_F')
-    plt.plot(epsilons, loss_ATR_last, marker='o', label='Comparison')
-    plt.xlabel('Epsilon')
-    plt.ylabel('Final Loss')
-    plt.title('Final Loss vs Epsilon')
-    plt.xscale('log')
-    plt.legend()
-    plt.grid(True)
+            
+    # plt.figure(figsize=(10, 6))
+    # plt.plot(epsilons, loss_ours_last, marker='o', label='Ours')
+    # plt.plot(epsilons, loss_ours_F_last, marker='o', label='Ours_F')
+    # plt.plot(epsilons, loss_ATR_last, marker='o', label='Comparison')
+    # plt.xlabel('Epsilon')
+    # plt.ylabel('Final Loss')
+    # plt.title('Final Loss vs Epsilon')
+    # plt.xscale('log')
+    # plt.legend()
+    # plt.grid(True)
 
-    plt.axhline(y=norm2_original_TR_algorithm, color='r', linestyle='--', label='TRD')
-    plt.legend()
+    # plt.axhline(y=norm2_original_TR_algorithm, color='r', linestyle='--', label='TRD')
+    # plt.legend()
 
-    # 保存图形
-    plt.savefig(f'{output_folder}/loss_plot_epsilon_sum_{current_time}.png')
-    plt.show()
-
+    # # 保存图形
+    # plt.savefig(f'{output_folder}/loss_plot_epsilon_sum_{current_time}.png')
+    # plt.show()
+    # np.savez(
+    #     f"{output_folder}/loss_data_{current_time}.npz",
+    #     epsilons=np.array(epsilons),
+    #     loss_ours_last=np.array(loss_ours_last),
+    #     loss_ours_F_last=np.array(loss_ours_F_last),
+    #     loss_ATR_last=np.array(loss_ATR_last),
+    #     norm2_original_TR_algorithm=norm2_original_TR_algorithm
+    # )
 
 
 

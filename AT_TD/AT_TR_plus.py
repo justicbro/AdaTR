@@ -30,14 +30,14 @@ else:
 
 # 定义一个布尔变量来控制日志记录
 log_enabled = True
-imshow_enabled = True
-compare_method_enabled = True
-save_mat_enabled = True
-save_fig_enabled = True
+imshow_enabled = False
+compare_method_enabled = False
+save_mat_enabled = False
+save_fig_enabled = False
 
 # 创建日志文件夹
 if log_enabled:
-    log_folder = 'Resluts My picture11'
+    log_folder = 'Resluts My picture18'
     if not os.path.exists(log_folder):
         os.makedirs(log_folder)
 
@@ -147,7 +147,7 @@ def display_images(original_image, images, row_titles, col_titles, rows, cols, f
         plt.savefig(save_path)
     plt.show()
 
-def objective_function_ATTR(X, G_list, E, iner_num_steps = 100, inner_tol = 1e-10):
+def objective_function_ATTR(X, G_list, E, inner_num_steps = 100, inner_tol = 1e-10):
     """
     Compute the objective function ||X - TN([G^(k)])||_F^2.
     X: Original tensor (PyTorch tensor)
@@ -161,8 +161,8 @@ def objective_function_ATTR(X, G_list, E, iner_num_steps = 100, inner_tol = 1e-1
 
     X_tube = X + E
 
-    tr_cores = tr.tr_decompose2(X_tube, G_list, max_iter=iner_num_steps, tol=inner_tol, dis_num = 2000, device="cuda")
-    # tr_cores = tr.tr_decompose(X_tube, ranks, max_iter=iner_num_steps, tol=inner_tol, dis_num = 2000, device="cuda")
+    tr_cores = tr.tr_decompose2(X_tube, G_list, max_iter=inner_num_steps, tol=inner_tol, dis_num = 2000, device="cuda")
+    # tr_cores = tr.tr_decompose(X_tube, ranks, max_iter=inner_num_steps, tol=inner_tol, dis_num = 2000, device="cuda")
 
     # del X_tube
     # torch.cuda.empty_cache()
@@ -618,7 +618,8 @@ def process_image(image_path, output_folder, config):
     X = torch.tensor(image / 255.0, dtype=torch.float32).to("cuda")
 
     # Decompose X into tensor train format
-    ranks = [5, 5, 5]  # Rank for each factor tensor
+    # ranks = [5, 5, 5]  # Rank for each factor tensor
+    ranks = [7, 7, 7]  # Rank for each factor tensor
     ranks = ranks + [ranks[0]]  # 最后一个 rank 应该等于第一个 rank
     shape = list(X.shape)
     tr_cores = tr.initialize_tr_cores(shape, ranks, device="cuda")
@@ -653,8 +654,11 @@ def process_image(image_path, output_folder, config):
 
     X = X.detach()
     tr_cores = [G.detach() for G in tr_cores]
-    tr_cores2 = tr.tr_decompose2(X, tr_cores, max_iter=inner_num_steps*outer_num_steps, tol=inner_tol, device="cuda")
+    # tr_cores2 = tr.tr_decompose2(X, tr_cores, max_iter=inner_num_steps*outer_num_steps, tol=inner_tol, device="cuda")
+    tr_cores2 = tr.tr_decompose2(X, tr_cores, max_iter=1, tol=inner_tol, device="cuda")
     TN_G_ori = tl.tr_to_tensor(tr_cores2) 
+    TN_G_ori_F = (TN_G_ori).cpu().detach().numpy()
+    save_mat_file(output_folder, f'X_Rec', TN_G_ori_F)
     norm2_original_TR_algorithm = torch.norm(X - TN_G_ori).item()
 
     E_Gaus = torch.normal(mean=0, std=1, size=X.shape, device="cuda")
@@ -662,7 +666,8 @@ def process_image(image_path, output_folder, config):
     scaling_factor = (config.epsilon ** 0.5) / torch.norm(E_Gaus)
     if torch.norm(E_Gaus)**2 > config.epsilon:
         E_Gaus.data = scaling_factor * E_Gaus
-    tr_cores3 = tr.tr_decompose2(X+E_Gaus, tr_cores, max_iter=inner_num_steps*outer_num_steps, tol=inner_tol, device="cuda")
+    # tr_cores3 = tr.tr_decompose2(X+E_Gaus, tr_cores, max_iter=inner_num_steps*outer_num_steps, tol=inner_tol, device="cuda")
+    tr_cores3 = tr.tr_decompose2(X+E_Gaus, tr_cores, max_iter=1, tol=inner_tol, device="cuda")
     TN_G_Gaus = tl.tr_to_tensor(tr_cores3) 
     norm2_Gaus = torch.norm(X - TN_G_Gaus).item()
 
@@ -676,7 +681,7 @@ def process_image(image_path, output_folder, config):
         # Optimize perturbation \mathcal{E} using comparison algorithm
         start_time = time.time()
         # config.outer_num_steps = 100
-        E_comparison, TN_G_comparison, loss_ATR = optimize_perturbation_comparison(X, tr_cores, config)
+        E_comparison, TN_G_comparison, loss_ATR =  optimize_perturbation_comparison(X, tr_cores, config)
         time_comp = time.time() - start_time
         print(f"time_comp 运行时间: {time_comp:.4f} 秒")
         norm2_comparison_algorithm = torch.norm(X - TN_G_comparison).item()
@@ -871,7 +876,7 @@ def process_image(image_path, output_folder, config):
             plt.savefig(f'{output_folder}/function_time_comparison_{base_name}.png')
         plt.show()
 
-    return time_simplified
+    return time_simplified, time_optimized
 
 # Example usage
 if __name__ == "__main__":
@@ -888,7 +893,8 @@ if __name__ == "__main__":
     # X = torch.tensor(lena/255.0, dtype=torch.float32).to("cuda")
  
     # Decompose X into tensor train format
-    ranks = [5, 5, 5]  # Rank for each factor tensor
+    # ranks = [5, 5, 5]  # Rank for each factor tensor
+    ranks = [10, 10, 10]  # Rank for each factor tensor
     ranks = ranks + [ranks[0]]  # 最后一个 rank 应该等于第一个 rank
     # tr_cores = tr.tr_decompose(X, ranks, max_iter=1, tol=1e-10, device="cuda")
     # shape = list(X.shape)
@@ -896,12 +902,13 @@ if __name__ == "__main__":
     # tr_cores = [tr_core.requires_grad_(True) for tr_core in tr_cores]
 
     # Set input parameter 
-    epsilon = (5)**2 # Frobenius norm constraint for perturbation tensor
+    # epsilon = (500)**2 # Frobenius norm constraint for perturbation tensor
+    epsilon = 10
     logging.info(f"Norm2 (epsilon): {epsilon}")
     inner_tol = 1e-8 # Tolerance for inner optimization
     lr = 0.01  # Learning rate for gradient descent
-    outer_num_steps = 100 # Number of outer optimization steps
-    inner_num_steps = 200 # Number of inner optimization steps
+    outer_num_steps = 5 # Number of outer optimization steps
+    inner_num_steps = 5 # Number of inner optimization steps
     outer_dis_num = 1 # Display loss every outer_dis_num steps
     inner_dis_num = 2000 # Display loss every inner_dis_num steps
     logging.info(f"Optimization parameters:")
@@ -917,11 +924,24 @@ if __name__ == "__main__":
 
     times = []
     norms = []
-    for i in range(1, 3):
+    times_simplified = []
+    times_optimized = []
+    for i in range(1, 2):
         image_name = f'{i}.png'
         image_path = os.path.join(input_folder, image_name)
         if os.path.isfile(image_path):
-            time_simplified = process_image(image_path, output_folder, config)
+            time_simplified, time_optimized = process_image(image_path, output_folder, config)
+            times_simplified.append(time_simplified)
+            # 假设 `process_image` 返回 `time_optimized`
+            times_optimized.append(time_optimized)
+        # 计算均值和方差
+        mean_simplified = np.mean(times_simplified)
+        std_simplified = np.std(times_simplified)
+        mean_optimized = np.mean(times_optimized)
+        std_optimized = np.std(times_optimized)
+
+        print(f"Simplified Algorithm: Mean = {mean_simplified:.4f}, Std = {std_simplified:.4f}")
+        print(f"Optimized Algorithm: Mean = {mean_optimized:.4f}, Std = {std_optimized:.4f}")
             # times.append(time_simplified)
             # norms.append(norm2_our_algorithm)
             # print(f"Processed {image_name}: Time = {time_simplified:.4f} s, Norm2 = {norm2_our_algorithm:.4f}")

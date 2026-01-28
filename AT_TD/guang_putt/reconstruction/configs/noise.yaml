@@ -1,0 +1,38 @@
+target: data/images/tokyo_downsampled_images/tokyo_4k.png
+base_config: configs/base_configs/2d_base_config_noise.yaml
+
+model: QTT
+lr: 0.005
+
+init_reso: 64
+end_reso: 2048
+num_iterations: 8192 # 4096, 8192
+# regularization_type: "TV"
+# regularization_weight: 0.1
+regularization_weight: 0.03
+loss_fn_str: L2
+
+
+max_ranks_arr:
+    - 300
+    # - 200
+
+iterations_for_upsampling:
+  - 128
+  - 256
+  - 512
+  - 1024
+  - 2048
+
+noise_type: gaussian
+noise_std: 0.1
+noise_mean: 0
+
+# noise_type: None
+# noise_std: 0
+# noise_mean: 0
+
+
+
+
+

@@ -124,7 +124,7 @@ def display_images(original_image, images, row_titles, col_titles, rows, cols, f
         plt.savefig(save_path)
     plt.show()
 
-def objective_function_ATTR(X, G_list, E, iner_num_steps = 100, inner_tol = 1e-10):
+def objective_function_ATTR(X, G_list, E, inner_num_steps = 100, inner_tol = 1e-10):
     """
     Compute the objective function ||X - TN([G^(k)])||_F^2.
     X: Original tensor (PyTorch tensor)
@@ -138,8 +138,8 @@ def objective_function_ATTR(X, G_list, E, iner_num_steps = 100, inner_tol = 1e-1
 
     X_tube = X + E
 
-    tr_cores = tr.tr_decompose2(X_tube, G_list, max_iter=iner_num_steps, tol=inner_tol, dis_num = 2000, device="cuda")
-    # tr_cores = tr.tr_decompose(X_tube, ranks, max_iter=iner_num_steps, tol=inner_tol, dis_num = 2000, device="cuda")
+    tr_cores = tr.tr_decompose2(X_tube, G_list, max_iter=inner_num_steps, tol=inner_tol, dis_num = 2000, device="cuda")
+    # tr_cores = tr.tr_decompose(X_tube, ranks, max_iter=inner_num_steps, tol=inner_tol, dis_num = 2000, device="cuda")
 
     # del X_tube
     # torch.cuda.empty_cache()

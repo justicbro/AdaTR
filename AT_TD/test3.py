@@ -41,7 +41,7 @@ class OptimizationConfig:
 
 
 
-def objective_function_ATTR(X, G_list, E, iner_num_steps = 100, inner_tol = 1e-10):
+def objective_function_ATTR(X, G_list, E, inner_num_steps = 100, inner_tol = 1e-10):
     """
     Compute the objective function ||X - TN([G^(k)])||_F^2.
     X: Original tensor (PyTorch tensor)
@@ -53,8 +53,8 @@ def objective_function_ATTR(X, G_list, E, iner_num_steps = 100, inner_tol = 1e-1
     # random_noise = torch.randn_like(X, device='cuda') * 0.1
     # X_tube = X + random_noise
 
-    # tr_cores = tr.tr_decompose3(X_tube, G_list, max_iter=iner_num_steps, tol=inner_tol, dis_num = 2000, device="cuda")
-    tr_cores = tr.tr_decompose2(X+EC, G_list, max_iter=iner_num_steps, tol=inner_tol, dis_num = 2000, device="cuda")
+    # tr_cores = tr.tr_decompose3(X_tube, G_list, max_iter=inner_num_steps, tol=inner_tol, dis_num = 2000, device="cuda")
+    tr_cores = tr.tr_decompose2(X+EC, G_list, max_iter=inner_num_steps, tol=inner_tol, dis_num = 2000, device="cuda")
 
     # # 确保 tr_cores 启用了梯度追踪
     # for core in tr_cores:

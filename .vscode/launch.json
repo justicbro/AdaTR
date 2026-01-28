@@ -4,12 +4,33 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
+        
         {
             "name": "Python Debugger: Current File",
             "type": "debugpy",
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal"
+        },
+        {
+            "name": "Experiment: optimize_G_list_noisy",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/AT_TD/tests/experiment_optimize_G_list_noisy.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "args": [
+                "--shape", "30", "30", "30",
+                "--ranks", "3", "3", "3", "3",
+                "--init-seed", "77",
+                "--init-stds", "0.05", "0.1", "0.2",
+                "--inner-num-steps", "500",
+                "--outer-num-steps", "40",
+                "--inner-dis-num", "50",
+                "--defence-lr", "0.05",
+                "--inner-tol", "1e-8",
+                "--verbose"
+            ]
         }
     ]
 }

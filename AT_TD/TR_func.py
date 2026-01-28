@@ -170,10 +170,50 @@ def als_update_tr(X, cores, n, device):
     # X_unfold = torch.tensor(X_unfold, requires_grad=True, dtype=torch.float32).to(device)
     # X_unfold_T = X_unfold.T
 
-    reg = 1e-5
-    new_core = X_unfold@X_hat_unfold.T@torch.linalg.inv(X_hat_unfold@X_hat_unfold.T+ reg * torch.eye(X_hat_unfold.shape[0], device=device))
-    # new_core = X_unfold@torch.linalg.pinv(X_hat_unfold + 1e-5 * torch.eye(X_hat_unfold.size(0), X_hat_unfold.size(1), device='cuda'))
-    # new_core = X_unfold @ X_hat_unfold.T @ torch.pinverse(X_hat_unfold @ X_hat_unfold.T)
+    # # Solve X_hat_unfold^T * core = X_unfold^T in least-squares sense to avoid forming Gram.
+    # try:
+    #     lstsq_res = torch.linalg.lstsq(X_hat_unfold.transpose(-2, -1), X_unfold.transpose(-2, -1))
+    #     solution_t = lstsq_res.solution
+    #     new_core = solution_t.transpose(-2, -1)
+    # except RuntimeError:
+    #     # As a fallback, use pseudo-inverse-based solution
+    #     pinv = torch.linalg.pinv(X_hat_unfold.transpose(-2, -1))
+    #     new_core = (pinv @ X_unfold.transpose(-2, -1)).transpose(-2, -1)
+
+    # lstsq_res = torch.linalg.lstsq(X_hat_unfold.transpose(-2, -1), X_unfold.transpose(-2, -1))
+    # solution_t = lstsq_res.solution
+    # new_core = solution_t.transpose(-2, -1)
+    # new_core = torch.nan_to_num(new_core)
+
+
+    pinv_rcond = 1e-6
+    try:
+        pinv = torch.linalg.pinv(X_hat_unfold, rcond=pinv_rcond)
+        new_core = X_unfold @ pinv
+    except (RuntimeError, torch.linalg.LinAlgError):
+        try:
+            lstsq_res = torch.linalg.lstsq(
+                X_hat_unfold.transpose(-2, -1),
+                X_unfold.transpose(-2, -1),
+            )
+            new_core = lstsq_res.solution.transpose(-2, -1)
+        except (RuntimeError, torch.linalg.LinAlgError):
+            gram = X_hat_unfold @ X_hat_unfold.transpose(-2, -1)
+            eye = torch.eye(gram.shape[-1], device=device, dtype=gram.dtype)
+            damping = 1e-4
+            gram = gram + damping * eye
+            new_core = (
+                X_unfold
+                @ X_hat_unfold.transpose(-2, -1)
+                @ torch.linalg.solve(gram, eye)
+            )
+
+    # new_core = X_unfold @ X_hat_unfold.T @ torch.linalg.pinv(X_hat_unfold @ X_hat_unfold.T)、、、、、、、、、
+    # lstsq_res = torch.linalg.lstsq(X_hat_unfold.transpose(-2, -1), X_unfold.transpose(-2, -1))
+    # new_core = lstsq_res.solution.transpose(-2, -1)
+
+    # reg = 1e-5
+    # new_core = X_unfold@X_hat_unfold.T@torch.linalg.inv(X_hat_unfold@X_hat_unfold.T+ reg * torch.eye(X_hat_unfold.shape[0], device=device))
 
     new_core = new_core.reshape(cores[n].shape[1], cores[n].shape[0], cores[n].shape[2])
     permuted_new_core = new_core.permute(1,0,2)
@@ -289,8 +329,163 @@ def tr_decompose3(X, cores, max_iter=500, tol=1e-10, dis_num = 10, device="cuda"
     
     return cores
 
+# def tr_decompose4(X, cores_ori, max_iter=500, tol=1e-10, dis_num = 10, device="cuda"):
+#     # 确保 X 是一个正确的张量
+#     # X = tl.tensor(X, requires_grad=True, device=device)
+#     # print("X + E requires_grad:", X.requires_grad)
 
-def tensor_completion(X, mask, cores_ori, max_iter=500, tol=1e-10, dis_num = 10, device="cuda"):
+#     shape = list(X.shape)
+#     prev_loss = float('inf')
+#     cores = cores_ori
+    
+#     for iteration in range(max_iter):
+#         for n in range(len(shape)):
+#             cores[n] = als_update_tr(X, cores, n, device)
+        
+#         # 重建张量计算损失
+#         X_hat = tl.tr_to_tensor(cores)
+#         loss = torch.norm(X - X_hat) / torch.norm(X)
+        
+#         if abs(prev_loss-loss) < tol:
+#             # print(f"Converged at iteration {iteration + 1}")
+#             break
+
+#         if iteration != 0 and iteration % dis_num == 0:
+#             print(f"Iteration {iteration + 1}, TRD_Loss: {loss.item():.6f}")
+        
+#         prev_loss = loss
+    
+#     return cores
+
+def tr_decompose4(X, cores, max_iter=500, tol=1e-10,
+                  dis_num=10, device="cuda", track_grad=False):
+    prev_loss = torch.tensor(float('inf'), device=device)
+    new_cores = list(cores)
+
+    for iteration in range(max_iter):
+        for n in range(len(cores)):
+            new_cores[n] = als_update_tr(X, new_cores, n, device)
+            if torch.isnan(new_cores[n]).any() or torch.isinf(new_cores[n]).any():
+                print(f"NaN/Inf in ALS update (core {n}), iteration {iteration + 1}")
+
+
+        X_hat = tl.tr_to_tensor(new_cores)
+        loss = torch.norm(X - X_hat) / torch.norm(X)
+        rec_error = torch.norm(X - X_hat)
+        if torch.abs(prev_loss - loss) < tol:
+            break
+        prev_loss = loss
+        if iteration != 0 and iteration % dis_num == 0:
+            print(f"Iteration {iteration + 1}, TRD_Loss: {loss.item():.10f}, Reconstruction Error: {rec_error.item():.10f}")
+
+        # print(f"Iteration {iteration + 1}, TRD_Loss: {loss.item():.10f}")
+
+    return new_cores
+
+
+def tr_decompose_gd(
+    X,
+    cores_ori,
+    max_iter=500,
+    tol=1e-6,
+    lr=1e-3,
+    dis_num=10,
+    device="cuda",
+    normalize_loss=True,
+    optimizer_type="adam",
+):
+    """
+    Optimise TR cores via gradient descent (Adam/SGD) instead of ALS updates.
+
+    Args:
+        X: Target tensor.
+        cores_ori: Initial TR cores (list of tensors).
+        max_iter: Number of gradient steps.
+        tol: Early-stopping tolerance on loss change.
+        lr: Optimiser learning rate.
+        dis_num: Print interval.
+        device: Device string.
+        normalize_loss: If True, loss = ||X-X̂||^2 / ||X||^2 for scale invariance.
+        optimizer_type: "adam" or "sgd".
+
+    Returns:
+        new_cores: Optimised cores (detached copies).
+        history: Dict containing loss / rec_error / grad_norm lists.
+    """
+    X = X.to(device)
+    denom = torch.norm(X)
+    eps = 1e-12
+
+    trainable_cores = []
+    for core in cores_ori:
+        cloned = core.clone().detach().to(device)
+        cloned.requires_grad_(True)
+        trainable_cores.append(cloned)
+
+    if optimizer_type.lower() == "sgd":
+        optimizer = torch.optim.SGD(trainable_cores, lr=lr)
+    else:
+        optimizer = torch.optim.Adam(trainable_cores, lr=lr)
+
+    prev_loss = float("inf")
+    loss_history = []
+    rec_history = []
+    grad_history = []
+
+    for iteration in range(1, max_iter + 1):
+        optimizer.zero_grad()
+        X_hat = tl.tr_to_tensor(trainable_cores)
+        rec_error = torch.norm(X - X_hat)
+        if normalize_loss:
+            loss = (rec_error ** 2) / ((denom ** 2) + eps)
+        else:
+            loss = rec_error ** 2
+
+        loss.backward()
+        optimizer.step()
+
+        with torch.no_grad():
+            grad_norm = 0.0
+            for core in trainable_cores:
+                if core.grad is not None:
+                    grad_norm += core.grad.norm().item() ** 2
+            grad_norm = grad_norm ** 0.5
+
+            loss_value = float(loss.item())
+            rec_value = float(rec_error.item())
+            loss_history.append(loss_value)
+            rec_history.append(rec_value)
+            grad_history.append(grad_norm)
+
+            if abs(prev_loss - loss_value) < tol:
+                break
+            prev_loss = loss_value
+
+        if iteration % dis_num == 0:
+            print(
+                f"[TR-GD] Iter {iteration:04d}: loss={loss_value:.6e}, "
+                f"rec_error={rec_value:.6e}, grad_norm={grad_norm:.3e}"
+            )
+
+    history = {
+        "loss": loss_history,
+        "rec_error": rec_history,
+        "grad_norm": grad_history,
+    }
+    return [core.detach() for core in trainable_cores], history
+
+
+
+def tensor_completion(
+    X,
+    mask,
+    cores_ori,
+    max_iter=500,
+    tol=1e-10,
+    dis_num=10,
+    device="cuda",
+    missing_init=None,
+):
     """
     Perform tensor completion using TR-ALS.
     
@@ -302,48 +497,61 @@ def tensor_completion(X, mask, cores_ori, max_iter=500, tol=1e-10, dis_num = 10,
     tol: Convergence tolerance
     device: Device to perform computations on ("cuda" or "cpu")
     
+    missing_init: Optional tensor providing initial values for missing entries.
+                  If None, the initial reconstruction from the provided cores is used.
+
     Returns:
     Completed tensor (PyTorch tensor)
     """
     # Initialize TR cores
     shape = list(X.shape)
     # cores = initialize_tr_cores(shape, ranks, device)
-    prev_loss = float('inf')
-    cores = [core.clone().detach() for core in cores_ori]
-    X_Core = tl.tr_to_tensor(cores)
-    X = X*mask
-    X[mask == 0] = X_Core[mask == 0]
-    X_real = X.clone().detach()
-    
+    prev_loss = float("inf")
+    mask = mask.to(device=device)
+    X = X.to(device)
+    mask_bool = mask.bool()
+    mask_float = mask.to(dtype=X.dtype)
+    inv_mask = (~mask_bool).to(dtype=X.dtype)
+
+    cores = [core.clone().detach().to(device) for core in cores_ori]
+    base_completion = tl.tr_to_tensor(cores)
+
+    if missing_init is not None:
+        if missing_init.shape != X.shape:
+            raise ValueError("missing_init must have the same shape as X.")
+        missing_values = missing_init.to(device=device, dtype=X.dtype)
+    else:
+        missing_values = base_completion
+
+    observed = (X * mask_float).detach()
+    working_tensor = observed + missing_values * inv_mask
+
     for iteration in range(max_iter):
         for n in range(len(shape)):
-            cores[n] = als_update_tr(X, cores, n, device)
-        
-        # Reconstruct the tensor from TR cores
-        X = tl.tr_to_tensor(cores)
-        
-        # Compute the loss only on observed entries
-        loss = torch.norm((X_real - X) * mask) / torch.norm(X * mask)
+            cores[n] = als_update_tr(working_tensor, cores, n, device)
 
-        # 更新 X 中 mask 元素为 1 的位置为 X 中对应的元素
-        X[mask == 1] = X_real[mask == 1]
-        
-        if abs(prev_loss - loss) < tol:
+        reconstructed = tl.tr_to_tensor(cores)
+        masked_diff = observed - reconstructed * mask_float
+        denom = torch.norm(observed)
+        loss = torch.norm(masked_diff) / (denom + 1e-12)
+
+        working_tensor = reconstructed * inv_mask + observed
+
+        loss_value = loss.item()
+        if abs(prev_loss - loss_value) < tol:
             print(f"Converged at iteration {iteration + 1}")
             break
-        
-        prev_loss = loss
-        
-        if iteration != 0 and iteration % dis_num == 0:
-            print(f"Iteration {iteration + 1}, Loss: {loss.item()}")
 
-        
+        prev_loss = loss_value
+
+        if iteration != 0 and iteration % dis_num == 0:
+            print(f"Iteration {iteration + 1}, Loss: {loss_value}")
     
     # del X_real
     # gc.collect()
     # torch.cuda.empty_cache()
     
-    return X, cores
+    return working_tensor, reconstructed, cores
 
 def reconstruct_tr(cores):
     """
