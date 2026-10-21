@@ -99,22 +99,22 @@ import os
 
 # 设置全局字体大小和线条粗细
 plt.rcParams.update({
-    'font.size': 20,           # 字体大小
-    'axes.titlesize': 24,      # 图标题字体大小
-    'axes.labelsize': 22,      # 坐标轴标签字体大小
-    'xtick.labelsize': 18,     # x轴刻度字体大小
-    'ytick.labelsize': 18,     # y轴刻度字体大小
-    'legend.fontsize': 18,     # 图例字体大小
-    'lines.linewidth': 2.5,    # 线条宽度
-    'lines.markersize': 10,    # 标记大小
-    'axes.linewidth': 1.5,     # 坐标轴线条宽度
+    'font.size': 30,           # 字体大小
+    'axes.titlesize': 36,      # 图标题字体大小
+    'axes.labelsize': 33,      # 坐标轴标签字体大小
+    'xtick.labelsize': 27,     # x轴刻度字体大小
+    'ytick.labelsize': 27,     # y轴刻度字体大小
+    'legend.fontsize': 27,     # 图例字体大小
+    'lines.linewidth': 4,      # 线条宽度
+    'lines.markersize': 15,    # 标记大小
+    'axes.linewidth': 2,       # 坐标轴线条宽度
 })
 
 # 加载数据
-data = np.load("./AT_TD/epgilon_compare_results11/results_data.npz", allow_pickle=True)
-output_folder = './AT_TD/epgilon_compare_results_rank_5_mean_only2'
-# data = np.load("./AT_TD/epgilon_compare_results14/results_data.npz", allow_pickle=True)
-# output_folder = './AT_TD/epgilon_compare_results_rank_10_mean_only'
+# data = np.load("./AT_TD/epgilon_compare_results11/results_data.npz", allow_pickle=True)
+# output_folder = './AT_TD/epgilon_compare_results_rank_5_mean_only2'
+data = np.load("./AT_TD/epgilon_compare_results14/results_data.npz", allow_pickle=True)
+output_folder = './AT_TD/epgilon_compare_results_rank_10_mean_only2'
 os.makedirs(output_folder, exist_ok=True)
 
 epsilons = data["epsilons"]
@@ -125,20 +125,24 @@ TRD_mean    = data["TRD_mean"]
 
 # -------- Final Loss vs Epsilon (均值曲线) --------
 plt.figure(figsize=(10, 6))
-plt.plot(epsilons, ours_mean, marker='o', label='AdaTR')
-plt.plot(epsilons, oursF_mean, marker='o', label='FAG-AdaTR')
-plt.plot(epsilons, ATR_mean, marker='o', label='ATTR')
-plt.axhline(y=TRD_mean, color='r', linestyle='--', linewidth=2.5, label='TRD mean')
+# plt.plot(epsilons, ours_mean, marker='o', label='AdaTR')
+# plt.plot(epsilons, oursF_mean, marker='o', label='FAG-AdaTR')
+# plt.plot(epsilons, ATR_mean, marker='o', label='ATTR')
+# plt.axhline(y=TRD_mean, color='r', linestyle='--', linewidth=4, label='TRD mean')
+plt.plot(epsilons, ours_mean, marker='o')
+plt.plot(epsilons, oursF_mean, marker='o')
+plt.plot(epsilons, ATR_mean, marker='o')
+plt.axhline(y=TRD_mean, color='r', linestyle='--', linewidth=4)
 
 plt.xlabel("Epsilon")
-plt.ylabel("$\|\mathcal{X} - \hat{\mathcal{X}}\|_F^2$")
+plt.ylabel(r"$\|\mathcal{X} - \hat{\mathcal{X}}\|_F^2$")
 # plt.title("Final Loss vs Epsilon (Mean)")
-plt.legend()
+# plt.legend()
 plt.grid(True)
 
-plt.savefig(os.path.join(output_folder, 'epsilon_vs_loss_mean.eps'), format='eps')
-plt.savefig(os.path.join(output_folder, 'epsilon_vs_loss_mean.png'), format='png')
-plt.savefig(os.path.join(output_folder, 'epsilon_vs_loss_mean.pdf'), format='pdf')
+plt.savefig(os.path.join(output_folder, 'epsilon_vs_loss_mean.eps'), format='eps', bbox_inches='tight')
+plt.savefig(os.path.join(output_folder, 'epsilon_vs_loss_mean.png'), format='png', bbox_inches='tight')
+plt.savefig(os.path.join(output_folder, 'epsilon_vs_loss_mean.pdf'), format='pdf', bbox_inches='tight')
 plt.close()
 
 # -------- Loss over Steps (均值曲线) --------
@@ -147,16 +151,30 @@ ours_m   = data["ours_m"]
 oursF_m  = data["oursF_m"]
 ATR_m    = data["ATR_m"]
 
-plt.figure(figsize=(10, 6))
+# 为这个图单独设置更大的字体和线条
+plt.rcParams.update({
+    'font.size': 36,
+    'axes.labelsize': 40,
+    'xtick.labelsize': 32,
+    'ytick.labelsize': 32,
+    'legend.fontsize': 32,
+    'lines.linewidth': 5,
+    'lines.markersize': 18,
+    'axes.linewidth': 2.5,
+})
+
+plt.figure(figsize=(12, 8))
 plt.plot(steps, ours_m, label="AdaTR")
 plt.plot(steps, oursF_m, label="FAG-AdaTR")
 # plt.plot(steps, ATR_m, label="ATTR")
 
 plt.xlabel("Step")
-plt.ylabel("$\|\mathcal{X} - \hat{\mathcal{X}}\|_F^2$")
+plt.ylabel(r"$\|\mathcal{X} - \hat{\mathcal{X}}\|_F^2$")
 # plt.title("Loss over Steps (Mean)")
-plt.legend()
+# plt.legend()
 plt.grid(True)
+plt.xlim(0, 100)  # 固定 X 轴范围
+plt.subplots_adjust(left=0.18, right=0.95, top=0.95, bottom=0.15)  # 固定边距
 
 plt.savefig(os.path.join(output_folder, 'loss_over_steps_mean.eps'), format='eps')
 plt.savefig(os.path.join(output_folder, 'loss_over_steps_mean.png'), format='png')

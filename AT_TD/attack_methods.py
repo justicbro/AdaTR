@@ -154,6 +154,7 @@ def optimize_perturbation_simplifed(
     rse_E_list: List[float] = []
     loss_list: List[float] = []
     attack_lr = getattr(config, "attack_lr", getattr(config, "lr", 0.01))
+    attack_lr = attack_lr*10
 
     if initial_E is not None:
         E = initial_E.clone().detach().to(X.device)
@@ -181,6 +182,8 @@ def optimize_perturbation_simplifed(
         TN_G = tl.tr_to_tensor(G_list)
 
         E_old = E.clone().detach()
+        # Scheme A: each mode computes its own update from the same E_old, then we fuse by weighted averaging.
+        E_base = E_old
         E_sum = torch.zeros_like(E)
         for n in range(X.dim()):
             X_dims = list(range(X.dim()))
@@ -192,13 +195,13 @@ def optimize_perturbation_simplifed(
             new_dims = [dims[-1]] + dims[:-1]
             Gr_unfold = tr.generalized_k_unfolding(X_hat, new_dims, 1)
 
-            E_unfold = tr.generalized_k_unfolding(E, new_X_dims, 0)
+            E_unfold = tr.generalized_k_unfolding(E_base, new_X_dims, 0)
             E_unfold_grad = (X_unfold - (X_unfold + E_unfold) @ torch.linalg.pinv(Gr_unfold) @ Gr_unfold) @ Gr_unfold.T @ torch.linalg.pinv(Gr_unfold).T
             E_unfold = E_unfold - attack_lr * E_unfold_grad
 
             E_folded = E_unfold.reshape(*[X.shape[dim] for dim in new_X_dims])
-            E = E_folded.permute(*[new_X_dims.index(i) for i in range(len(new_X_dims))])
-            E_sum += weights[n] * E
+            E_mode = E_folded.permute(*[new_X_dims.index(i) for i in range(len(new_X_dims))])
+            E_sum += weights[n] * E_mode
         E = E_sum
         if linf_bound is not None:
             E = torch.clamp(E, -linf_bound, linf_bound)
