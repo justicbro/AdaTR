@@ -1,9 +1,0 @@
-2024-12-24 18:02:33,615 - Norm2 (epsilon): 30
-2024-12-24 18:02:33,616 - Optimization parameters:
-2024-12-24 18:02:33,616 - epsilon (Frobenius norm constraint): 30
-2024-12-24 18:02:33,616 - inner_tol (Tolerance for inner optimization): 1e-10
-2024-12-24 18:02:33,616 - lr (Learning rate): 0.01
-2024-12-24 18:02:33,616 - outer_num_steps (Number of outer optimization steps): 300
-2024-12-24 18:02:33,616 - inner_num_steps (Number of inner optimization steps): 500
-2024-12-24 18:02:33,616 - outer_dis_num (Display loss every outer_dis_num steps): 1
-2024-12-24 18:02:33,616 - inner_dis_num (Display loss every inner_dis_num steps): 2000

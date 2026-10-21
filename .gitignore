@@ -1,0 +1,67 @@
+# Datasets, model weights and experiment outputs stay local only
+# (too large for GitHub: single files over 100 MB, pushes over 2 GB).
+
+# Data / weights / arrays / archives / logs
+*.npy
+*.npz
+*.mat
+*.pt
+*.pth
+*.ckpt
+*.h5
+*.pkl
+*.tar
+*.gz
+*.tgz
+*.zip
+*.log
+/*.csv
+/data/
+AT_TD/video_data/
+AT_TD/guang_putt/reconstruction/data/
+AT_TD/guang_putt/reconstruction/models/
+AT_TD/guang_putt/reconstruction/npydata/
+
+# Experiment outputs
+Resluts*/
+Results*/
+Defence Results*/
+/result*/
+AT_TD/result*/
+epgilon_compare_results*/
+/logs*/
+AT_TD/logs*/
+/angle_exp/
+/completion_outputs*/
+AT_TD/completion_outputs*/
+AT_TD/combined_epsilon_plots/
+AT_TD/lr_adatr_single_image_results*/
+AT_TD/rank5_attack_rank_sweep_experiment/**/*.png
+AT_TD/rank5_attack_rank_sweep_experiment/**/*.pdf
+AT_TD/rank5_attack_rank_sweep_experiment/**/*.eps
+AT_TD/rank5_attack_rank_sweep_experiment/**/*.csv
+AT_TD/AT_TD/
+AT_TD/guang_putt/reconstruction/outfigures/
+AT_TD/guang_putt/reconstruction/outputfigures/
+AT_TD/guang_putt/reconstruction/figures/
+AT_TD/guang_putt/reconstruction/tt*.png
+/X.png
+/X_E_*.png
+/TN_G_*.png
+/loss_vs_epsilon.png
+/my_plot.png
+/lena_comparison.png
+/image_completion_test_*.png
+
+# Environments, caches, editor files
+.venv/
+myenv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.history/
+.DS_Store
+/get-pip.py*
+
+# The Overleaf paper is a separate git repo
+/paper/
