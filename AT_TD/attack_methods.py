@@ -243,6 +243,144 @@ def optimize_perturbation_simplifed(
     return E, TN_G, loss_list
 
 
+def _tr_decompose_with_prev(
+    X: torch.Tensor,
+    cores_ori: List[torch.Tensor],
+    max_iter: int,
+    tol: float,
+    device: str = "cuda",
+) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
+    """Same TR-ALS as tr.tr_decompose2, but also returns the cores at the start of the last sweep (t = T-1)."""
+    cores = [G.clone() for G in cores_ori]
+    prev_cores = [G.clone() for G in cores]
+    prev_loss = float('inf')
+    for _ in range(max_iter):
+        prev_cores = [G.clone() for G in cores]
+        for n in range(len(cores)):
+            cores[n] = tr.als_update_tr(X, cores, n, device)
+        loss = torch.norm(X - tl.tr_to_tensor(cores)) / torch.norm(X)
+        if abs(prev_loss - loss) < tol:
+            break
+        prev_loss = loss
+    return cores, prev_cores
+
+
+def optimize_perturbation_simplifed_v2(
+    X: torch.Tensor,
+    G_list_ori: List[torch.Tensor],
+    config: Any,
+    initial_E: Optional[torch.Tensor] = None,
+    linf_bound: Optional[float] = None,
+    prev_mode: str = "sweep",
+) -> Tuple[torch.Tensor, torch.Tensor, List[float]]:
+    """FAG-AdaTR with the paper's gradient, which uses both G^(T-1) and G^(T):
+        grad h_n = -(X_[n] - (X_[n] + E_[n]) G_{!=n}^{(T-1)+} G_{!=n}^{(T)}) (G_{!=n}^{(T)})^T (G_{!=n}^{(T-1)+})^T
+    optimize_perturbation_simplifed uses G^(T) in both places, so pinv(G) G is a projection P and its
+    step reduces to E + lr * E P, independent of X. Everything else here is identical to that version.
+
+    prev_mode selects G_{!=n}^{(T-1)}:
+        "sweep": sub-chain of the cores after ALS sweep T-1.
+        "als":   sub-chain actually used to update core n in sweep T
+                 (cores before n from sweep T, cores after n from sweep T-1).
+    """
+    if prev_mode not in ("sweep", "als"):
+        raise ValueError(f"Unknown prev_mode: {prev_mode}")
+    rse_E_list: List[float] = []
+    loss_list: List[float] = []
+    attack_lr = getattr(config, "attack_lr", getattr(config, "lr", 0.01))
+    attack_lr = attack_lr*10
+
+    if initial_E is not None:
+        E = initial_E.clone().detach().to(X.device)
+    else:
+        E = torch.randn_like(X, device='cuda')
+    if linf_bound is not None:
+        E.data.clamp_(-linf_bound, linf_bound)
+
+    total_size = sum(X.size())
+    weights = [X.size(dim) / total_size for dim in range(X.dim())]
+
+    scaling_factor = (config.epsilon ** 0.5) / torch.norm(E)
+    if torch.norm(E) ** 2 > config.epsilon:
+        E.data = (scaling_factor) * E
+
+    for step in range(config.outer_num_steps_attack):
+        G_list, G_prev = _tr_decompose_with_prev(
+            X + E,
+            G_list_ori,
+            max_iter=config.inner_num_steps,
+            tol=config.inner_tol,
+            device="cuda",
+        )
+        TN_G = tl.tr_to_tensor(G_list)
+
+        E_old = E.clone().detach()
+        E_base = E_old
+        E_sum = torch.zeros_like(E)
+        for n in range(X.dim()):
+            X_dims = list(range(X.dim()))
+            new_X_dims = [X_dims[n]] + X_dims[n + 1:] + X_dims[:n]
+            X_unfold = tr.generalized_k_unfolding(X, new_X_dims, 0)
+
+            X_hat = tr.contract_except_n(G_list, n)
+            dims = list(range(X_hat.dim()))
+            new_dims = [dims[-1]] + dims[:-1]
+            Gr_unfold = tr.generalized_k_unfolding(X_hat, new_dims, 1)
+
+            prev_chain = G_prev if prev_mode == "sweep" else G_list[:n] + G_prev[n:]
+            X_hat_prev = tr.contract_except_n(prev_chain, n)
+            Gr_prev_pinv = torch.linalg.pinv(tr.generalized_k_unfolding(X_hat_prev, new_dims, 1))
+
+            E_unfold = tr.generalized_k_unfolding(E_base, new_X_dims, 0)
+            # E_unfold_grad = -grad h_n, so the descent step below is gradient ascent on h_n.
+            residual = X_unfold - (X_unfold + E_unfold) @ Gr_prev_pinv @ Gr_unfold
+            E_unfold_grad = residual @ Gr_unfold.T @ Gr_prev_pinv.T
+            E_unfold = E_unfold - attack_lr * E_unfold_grad
+
+            E_folded = E_unfold.reshape(*[X.shape[dim] for dim in new_X_dims])
+            E_mode = E_folded.permute(*[new_X_dims.index(i) for i in range(len(new_X_dims))])
+            E_sum += weights[n] * E_mode
+        E = E_sum
+        if linf_bound is not None:
+            E = torch.clamp(E, -linf_bound, linf_bound)
+
+        scaling_factor = (config.epsilon ** 0.5) / torch.norm(E)
+        if torch.norm(E) ** 2 > config.epsilon:
+            E.data = (scaling_factor) * E
+        if linf_bound is not None:
+            E.data.clamp_(-linf_bound, linf_bound)
+
+        rse_E = torch.norm(E - E_old).item()
+
+        recon_norm = torch.norm(X - TN_G).item()
+        noise_norm = torch.norm(E).item()
+        loss_list.append(recon_norm)
+
+        logging.info(
+            f"[Ours_F_v2] Step {step + 1}/{config.outer_num_steps_attack}, "
+            f"loss≈{recon_norm:.6f}, recon_norm={recon_norm:.6f}, ||E||={noise_norm:.6f}, RSE_E={rse_E:.6f}"
+        )
+        print(
+            f"[Ours_F_v2] Step {step + 1}/{config.outer_num_steps_attack}: "
+            f"loss≈{recon_norm:.6f}, recon_norm={recon_norm:.6f}, ||E||={noise_norm:.6f}, RSE_E={rse_E:.6f}"
+        )
+
+        rse_E_list.append(rse_E)
+
+        prev_norm = torch.norm(E_old)
+        rel_change = rse_E / (prev_norm + 1e-12) if prev_norm > 0 else rse_E
+        if rel_change < config.outer_tol:
+            print(f"[Ours_F_v2] Early stop at step {step + 1} due to relative E change {rel_change:.3e} < {config.outer_tol}")
+            logging.info(f"[Ours_F_v2] Early stop at step {step + 1} because relative E change={rel_change:.3e} < {config.outer_tol}")
+            break
+
+        E = E.detach()
+        TN_G = TN_G.detach()
+        G_list = [G.detach() for G in G_list]
+
+    return E, TN_G, loss_list
+
+
 def optimize_perturbation_comparison(
     attacked_tensor: torch.Tensor,
     G_list: List[torch.Tensor],

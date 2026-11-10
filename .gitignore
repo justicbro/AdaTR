@@ -65,3 +65,4 @@ __pycache__/
 
 # The Overleaf paper is a separate git repo
 /paper/
+/AT_TD/fag_v2_compare_results/
