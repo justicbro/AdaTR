@@ -66,3 +66,5 @@ __pycache__/
 # The Overleaf paper is a separate git repo
 /paper/
 /AT_TD/fag_v2_compare_results/
+/AT_TD/reproduce_epsilon_sweep_results/
+/AT_TD/fag_convergence_results/
